@@ -1,2 +1,4 @@
 pytest
+pytest-coverage
+pytest-xdist
 flake8
