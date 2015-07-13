@@ -141,6 +141,7 @@ class ConsularTest(TestCase):
         self.assertEqual(request['path'], '/v1/agent/service/register')
         self.assertEqual(request['data'], {
             'Name': 'my-app',
+            'ID': 'my-app_0-1396592784349',
             'Address': 'slave-1234.acme.org',
             'Port': 31372,
         })
@@ -166,7 +167,8 @@ class ConsularTest(TestCase):
         request = yield self.consul_requests.get()
         self.assertEqual(request['method'], 'PUT')
         self.assertEqual(
-            request['path'], '/v1/agent/service/deregister/my-app')
+            request['path'],
+            '/v1/agent/service/deregister/my-app_0-1396592784349')
         request['deferred'].callback('ok')
         response = yield d
         self.assertEqual((yield response.json()), {
