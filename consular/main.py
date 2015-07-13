@@ -23,7 +23,6 @@ class Consular(object):
         self.event_dispatch = {
             'status_update_event': self.handle_status_update_event,
         }
-        self.unknown_event_handler = self.handle_unknown_event
 
     def consul_request(self, method, path, data=None):
         return treq.request(
