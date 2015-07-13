@@ -1,5 +1,7 @@
 import click
 
+from urllib import urlencode
+
 
 @click.command()
 @click.option('--scheme', default='http',
@@ -18,7 +20,12 @@ import click
                     'process.'), type=str)
 def main(scheme, host, port, consul, marathon, registration_id):
     from consular.main import Consular
-    consular = Consular(consul, marathon,
-                        scheme=scheme, host=host, port=port,
-                        registration_id=registration_id)
+    consular = Consular(consul, marathon)
+    if registration_id:
+        events_url = "%s://%s:%s/events?%s" % (
+            scheme, host, port,
+            urlencode({
+                'registration': registration_id,
+            }))
+        consular.register_marathon_event_callback(events_url)
     consular.app.run(host, port)
