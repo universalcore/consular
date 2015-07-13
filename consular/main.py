@@ -139,8 +139,10 @@ class Consular(object):
         return d
 
     def handle_unknown_event(self, request, event):
+        event_type = event.get('eventType')
         request.setHeader('Content-Type', 'application/json')
         request.setResponseCode(400)  # bad request
+        log.msg('Not handling event type: %s' % (event_type,))
         return json.dumps({
-            'error': 'Event type %s not supported.' % (event.get('eventType'),)
+            'error': 'Event type %s not supported.' % (event_type,)
         })
