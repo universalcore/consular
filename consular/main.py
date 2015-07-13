@@ -134,3 +134,6 @@ class Consular(object):
         return json.dumps({
             'error': 'Event type %s not supported.' % (event_type,)
         })
+
+    def sync_tasks(self):
+        pass
