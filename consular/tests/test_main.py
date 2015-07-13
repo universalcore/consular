@@ -12,7 +12,22 @@ from twisted.python import log
 from consular.main import Consular
 
 import treq
-from treq.test.test_response import FakeResponse
+
+
+class FakeResponse(object):
+
+    def __init__(self, code, headers, content=None):
+        self.code = code
+        self.headers = headers
+        self._content = content
+
+    def content(self):
+        return succeed(self._content)
+
+    def json(self):
+        d = self.content()
+        d.addCallback(lambda content: json.loads(content))
+        return d
 
 
 class ConsularTest(TestCase):
@@ -160,30 +175,35 @@ class ConsularTest(TestCase):
 
     @inlineCallbacks
     def test_register_with_marathon(self):
-        self.patch(
-            self.consular, 'get_marathon_event_callbacks',
-            lambda *a: succeed([]))
         d = self.consular.register_marathon_event_callback('the-uuid')
         d.addErrback(log.err)
-        request = yield self.marathon_requests.get()
+        list_callbacks_request = yield self.marathon_requests.get()
+        list_callbacks_request['deferred'].callback(
+            FakeResponse(200, [], json.dumps({'callbackUrls': []})))
+
+        create_callback_request = yield self.marathon_requests.get()
         self.assertEqual(
-            request['path'],
+            create_callback_request['path'],
             '/v2/eventSubscriptions?%s' % (urlencode({
                 'callbackUrl': ('http://localhost:7000/'
                                 'events?registration=the-uuid')
             }),))
 
-        self.assertEqual(request['method'], 'POST')
-        request['deferred'].callback(FakeResponse(200, []))
+        self.assertEqual(create_callback_request['method'], 'POST')
+        create_callback_request['deferred'].callback(FakeResponse(200, []))
         response = yield d
         self.assertEqual(response, True)
 
     @inlineCallbacks
     def test_already_registered_with_marathon(self):
-        self.patch(
-            self.consular, 'get_marathon_event_callbacks',
-            lambda *a: succeed(
-                ['http://localhost:7000/events?registration=the-uuid']))
-        response = yield self.consular.register_marathon_event_callback(
-            'the-uuid')
+        d = self.consular.register_marathon_event_callback('the-uuid')
+        list_callbacks_request = yield self.marathon_requests.get()
+        list_callbacks_request['deferred'].callback(
+            FakeResponse(200, [], json.dumps({
+                'callbackUrls': [
+                    'http://localhost:7000/events?registration=the-uuid'
+                ]
+            })))
+
+        response = yield d
         self.assertEqual(response, True)
