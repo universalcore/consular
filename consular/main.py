@@ -19,19 +19,13 @@ class Consular(object):
 
     app = Klein()
 
-    def __init__(self, consul_endpoint, marathon_endpoint,
-                 scheme='http', host='localhost', port=7000,
-                 registration_id=None):
+    def __init__(self, consul_endpoint, marathon_endpoint):
         self.consul_endpoint = consul_endpoint
         self.marathon_endpoint = marathon_endpoint
         self.pool = HTTPConnectionPool(reactor, persistent=False)
         self.event_dispatch = {
             'status_update_event': self.handle_status_update_event,
         }
-
-        if registration_id:
-            d = self.register_marathon_event_callback(registration_id)
-            d.addErrback(log.err)
 
     def get_marathon_event_callbacks(self):
         d = self.marathon_request('GET', '/v2/eventSubscriptions')

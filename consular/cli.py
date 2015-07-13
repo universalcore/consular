@@ -20,6 +20,8 @@ from urllib import urlencode
                     'process.'), type=str)
 def main(scheme, host, port, consul, marathon, registration_id):
     from consular.main import Consular
+    from twisted.python import log
+    
     consular = Consular(consul, marathon)
     if registration_id:
         events_url = "%s://%s:%s/events?%s" % (
@@ -27,5 +29,6 @@ def main(scheme, host, port, consul, marathon, registration_id):
             urlencode({
                 'registration': registration_id,
             }))
-        consular.register_marathon_event_callback(events_url)
+        d = consular.register_marathon_event_callback(events_url)
+        d.addCallback(log.err)
     consular.app.run(host, port)
