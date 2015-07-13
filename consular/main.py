@@ -137,7 +137,7 @@ class Consular(object):
             'error': 'Event type %s not supported.' % (event_type,)
         })
 
-    def sync_tasks(self):
+    def sync_apps(self):
         d = self.marathon_request('GET', '/v2/apps')
         d.addCallback(lambda response: response.json())
         d.addCallback(

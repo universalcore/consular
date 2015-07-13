@@ -211,3 +211,20 @@ class ConsularTest(TestCase):
 
         response = yield d
         self.assertEqual(response, True)
+
+    @inlineCallbacks
+    def test_sync_app_task(self):
+        app = {'id': '/my-app'}
+        task = {'id': 'my-task-id', 'host': '0.0.0.0', 'ports': [1234]}
+        d = self.consular.sync_app_task(app, task)
+        consul_request = yield self.consul_requests.get()
+        self.assertEqual(consul_request['path'], '/v1/agent/service/register')
+        self.assertEqual(consul_request['data'], {
+            'Name': 'my-app',
+            'ID': 'my-task-id',
+            'Address': '0.0.0.0',
+            'Port': 1234,
+        })
+        self.assertEqual(consul_request['method'], 'PUT')
+        consul_request['deferred'].callback('')
+        yield d
