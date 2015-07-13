@@ -27,3 +27,7 @@ Usage
 
     $ pip install consular
     $ consular --help
+
+
+.. _Marathon: http://mesosphere.github.io/marathon/
+.. _Consul: http://consul.io/
