@@ -1,14 +1,18 @@
 import json
+from urllib import urlencode
 
 from twisted.trial.unittest import TestCase
 from twisted.web.server import Site
 from twisted.internet import reactor
-from twisted.internet.defer import inlineCallbacks, DeferredQueue, Deferred
+from twisted.internet.defer import (
+    inlineCallbacks, DeferredQueue, Deferred, succeed, fail)
 from twisted.web.client import HTTPConnectionPool
+from twisted.python import log
 
 from consular.main import Consular
 
 import treq
+from treq.test.test_response import FakeResponse
 
 
 class ConsularTest(TestCase):
@@ -32,20 +36,26 @@ class ConsularTest(TestCase):
         self.pool = HTTPConnectionPool(reactor, persistent=False)
         self.addCleanup(self.pool.closeCachedConnections)
 
-        # We use this to mock requests going to Consul
+        # We use this to mock requests going to Consul & Marathon
         self.consul_requests = DeferredQueue()
+        self.marathon_requests = DeferredQueue()
 
-        def mock_consul_request(method, path, data=None):
-            d = Deferred()
-            self.consul_requests.put({
-                'method': method,
-                'path': path,
-                'data': data,
-                'deferred': d,
-            })
-            return d
+        def mock_requests(queue):
+            def mock_it(method, path, data=None):
+                d = Deferred()
+                queue.put({
+                    'method': method,
+                    'path': path,
+                    'data': data,
+                    'deferred': d,
+                })
+                return d
+            return mock_it
 
-        self.patch(self.consular, 'consul_request', mock_consul_request)
+        self.patch(self.consular, 'consul_request',
+                   mock_requests(self.consul_requests))
+        self.patch(self.consular, 'marathon_request',
+                   mock_requests(self.marathon_requests))
 
     def request(self, method, path, data=None):
         return treq.request(
@@ -147,3 +157,33 @@ class ConsularTest(TestCase):
         self.assertEqual((yield response.json()), {
             'status': 'ok'
         })
+
+    @inlineCallbacks
+    def test_register_with_marathon(self):
+        self.patch(
+            self.consular, 'get_marathon_event_callbacks',
+            lambda *a: succeed([]))
+        d = self.consular.register_marathon_event_callback('the-uuid')
+        d.addErrback(log.err)
+        request = yield self.marathon_requests.get()
+        self.assertEqual(
+            request['path'],
+            '/v2/eventSubscriptions?%s' % (urlencode({
+                'callbackUrl': ('http://localhost:7000/'
+                                'events?registration=the-uuid')
+            }),))
+
+        self.assertEqual(request['method'], 'POST')
+        request['deferred'].callback(FakeResponse(200, []))
+        response = yield d
+        self.assertEqual(response, True)
+
+    @inlineCallbacks
+    def test_already_registered_with_marathon(self):
+        self.patch(
+            self.consular, 'get_marathon_event_callbacks',
+            lambda *a: succeed(
+                ['http://localhost:7000/events?registration=the-uuid']))
+        response = yield self.consular.register_marathon_event_callback(
+            'the-uuid')
+        self.assertEqual(response, True)
