@@ -18,10 +18,14 @@ from urllib import urlencode
               help=('Auto register for Marathon event callbacks with the '
                     'registration-id. Must be unique for each consular '
                     'process.'), type=str)
+@click.option('--sync-interval',
+              help=('Automatically sync the apps in Marathon with what\'s '
+                    'in Consul every _n_ seconds. Defaults to 0 (disabled).'),
+              type=int)
 def main(scheme, host, port,
-         consul, marathon, registration_id):  # pragma: no cover
+         consul, marathon, registration_id, sync_interval):  # pragma: no cover
     from consular.main import Consular
-    from twisted.python import log
+    from twisted.internet.task import LoopingCall
 
     consular = Consular(consul, marathon)
     if registration_id:
@@ -30,6 +34,10 @@ def main(scheme, host, port,
             urlencode({
                 'registration': registration_id,
             }))
-        d = consular.register_marathon_event_callback(events_url)
-        d.addCallback(log.err)
+        consular.register_marathon_event_callback(events_url)
+
+    if sync_interval > 0:
+        lc = LoopingCall(consular.sync_tasks)
+        lc.start(sync_interval, now=True)
+
     consular.app.run(host, port)
