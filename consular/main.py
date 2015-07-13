@@ -2,9 +2,14 @@ import json
 
 from twisted.internet import reactor
 from twisted.web.client import HTTPConnectionPool
+from twisted.internet.defer import succeed
 
 import treq
 from klein import Klein
+
+
+def get_appid(event):
+    return event['appId'].rsplit('/', 1)[1]
 
 
 class Consular(object):
@@ -20,7 +25,7 @@ class Consular(object):
         }
         self.unknown_event_handler = self.handle_unknown_event
 
-    def consul_request(self, method, path, data):
+    def consul_request(self, method, path, data=None):
         return treq.request(
             method, '%s%s' % (self.consul_endpoint, path),
             headers={
@@ -43,13 +48,37 @@ class Consular(object):
         return handler(request, event)
 
     def handle_status_update_event(self, request, event):
+        dispatch = {
+            'TASK_STAGING': self.noop,
+            'TASK_STARTING': self.noop,
+            'TASK_RUNNING': self.update_task_running,
+            'TASK_FINISHED': self.update_task_killed,
+            'TASK_FAILED': self.update_task_killed,
+            'TASK_KILLED': self.update_task_killed,
+            'TASK_LOST': self.update_task_killed,
+        }
+        handler = dispatch.get(event['taskStatus'])
+        return handler(request, event)
+
+    def noop(self, request, event):
+        return succeed(json.dumps({
+            'status': 'ok'
+        }))
+
+    def update_task_running(self, request, event):
         # NOTE: Marathon sends a list of ports, I don't know yet when & if
         #       there are multiple values in that list.
         d = self.consul_request('PUT', '/v1/agent/service/register', {
-            "Name": event['appId'].rsplit('/', 1)[1],
+            "Name": get_appid(event),
             "Address": event['host'],
             "Port": event['ports'][0],
         })
+        d.addCallback(lambda _: json.dumps({'status': 'ok'}))
+        return d
+
+    def update_task_killed(self, request, event):
+        d = self.consul_request('PUT', '/v1/agent/service/deregister/%s' % (
+            get_appid(event),))
         d.addCallback(lambda _: json.dumps({'status': 'ok'}))
         return d
 
