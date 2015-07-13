@@ -4,12 +4,12 @@ Consular
 Receive events from Marathon_, update Consul_ with the relevant information
 about services & tasks.
 
-.. image:: https://travis-ci.org/smn/consular.svg?branch=develop
-    :target: https://travis-ci.org/smn/consular
+.. image:: https://travis-ci.org/universalcore/consular.svg?branch=develop
+    :target: https://travis-ci.org/universalcore/consular
     :alt: Continuous Integration
 
-.. image:: https://coveralls.io/repos/smn/consular/badge.png?branch=develop
-    :target: https://coveralls.io/r/smn/consular?branch=develop
+.. image:: https://coveralls.io/repos/universalcore/consular/badge.png?branch=develop
+    :target: https://coveralls.io/r/universalcore/consular?branch=develop
     :alt: Code Coverage
 
 .. image:: https://readthedocs.org/projects/consular/badge/?version=latest
@@ -34,7 +34,7 @@ Installing for local dev
 
 Make sure elasticsearch_ is running, then::
 
-    $ git clone https://github.com/smn/consular.git
+    $ git clone https://github.com/universalcore/consulari.git
     $ cd consular
     $ virtualenv ve
     $ source ve/bin/activate
