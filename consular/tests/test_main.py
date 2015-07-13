@@ -16,10 +16,15 @@ class ConsularTest(TestCase):
             'http://localhost:8500',
             'http://localhost:8080',
         )
+
+        # spin up a site so we can test it, pretty sure Klein has better
+        # ways of doing this but they're not documented anywhere.
         self.site = Site(self.consular.app.resource())
         self.listener = reactor.listenTCP(0, self.site, interface='localhost')
         self.listener_port = self.listener.getHost().port
         self.addCleanup(self.listener.loseConnection)
+
+        # cleanup stuff for treq's global http request pool
         self.pool = HTTPConnectionPool(reactor, persistent=False)
         self.addCleanup(self.pool.closeCachedConnections)
 
