@@ -21,7 +21,7 @@ from urllib import urlencode
 def main(scheme, host, port, consul, marathon, registration_id):
     from consular.main import Consular
     from twisted.python import log
-    
+
     consular = Consular(consul, marathon)
     if registration_id:
         events_url = "%s://%s:%s/events?%s" % (
