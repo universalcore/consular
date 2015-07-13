@@ -19,20 +19,13 @@ class Consular(object):
 
     app = Klein()
 
-    def __init__(self, consul_endpoint, marathon_endpoint,
-                 scheme='http', host='localhost', port=7000,
-                 registration_id=None):
+    def __init__(self, consul_endpoint, marathon_endpoint):
         self.consul_endpoint = consul_endpoint
         self.marathon_endpoint = marathon_endpoint
         self.pool = HTTPConnectionPool(reactor, persistent=False)
         self.event_dispatch = {
             'status_update_event': self.handle_status_update_event,
         }
-        self.consular_endpoint = '%s://%s:%s' % (scheme, host, port)
-
-        if registration_id:
-            d = self.register_marathon_event_callback(registration_id)
-            d.addErrback(log.err)
 
     def get_marathon_event_callbacks(self):
         d = self.marathon_request('GET', '/v2/eventSubscriptions')
@@ -51,14 +44,8 @@ class Consular(object):
         return d
 
     @inlineCallbacks
-    def register_marathon_event_callback(self, registration_id):
+    def register_marathon_event_callback(self, events_url):
         existing_callbacks = yield self.get_marathon_event_callbacks()
-        events_url = "%s/events?%s" % (
-            self.consular_endpoint,
-            urlencode({
-                'registration': registration_id,
-            }))
-
         already_registered = any(
             [events_url == url for url in existing_callbacks])
         if already_registered:

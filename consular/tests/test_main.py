@@ -177,7 +177,8 @@ class ConsularTest(TestCase):
 
     @inlineCallbacks
     def test_register_with_marathon(self):
-        d = self.consular.register_marathon_event_callback('the-uuid')
+        d = self.consular.register_marathon_event_callback(
+            'http://localhost:7000/events?registration=the-uuid')
         d.addErrback(log.err)
         list_callbacks_request = yield self.marathon_requests.get()
         list_callbacks_request['deferred'].callback(
@@ -198,7 +199,8 @@ class ConsularTest(TestCase):
 
     @inlineCallbacks
     def test_already_registered_with_marathon(self):
-        d = self.consular.register_marathon_event_callback('the-uuid')
+        d = self.consular.register_marathon_event_callback(
+            'http://localhost:7000/events?registration=the-uuid')
         list_callbacks_request = yield self.marathon_requests.get()
         list_callbacks_request['deferred'].callback(
             FakeResponse(200, [], json.dumps({

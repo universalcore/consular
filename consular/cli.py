@@ -1,5 +1,7 @@
 import click
 
+from urllib import urlencode
+
 
 @click.command()
 @click.option('--scheme', default='http',
@@ -16,9 +18,18 @@ import click
               help=('Auto register for Marathon event callbacks with the '
                     'registration-id. Must be unique for each consular '
                     'process.'), type=str)
-def main(scheme, host, port, consul, marathon, registration_id):
+def main(scheme, host, port,
+         consul, marathon, registration_id):  # pragma: no cover
     from consular.main import Consular
-    consular = Consular(consul, marathon,
-                        scheme=scheme, host=host, port=port,
-                        registration_id=registration_id)
+    from twisted.python import log
+
+    consular = Consular(consul, marathon)
+    if registration_id:
+        events_url = "%s://%s:%s/events?%s" % (
+            scheme, host, port,
+            urlencode({
+                'registration': registration_id,
+            }))
+        d = consular.register_marathon_event_callback(events_url)
+        d.addCallback(log.err)
     consular.app.run(host, port)
