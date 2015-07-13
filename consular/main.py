@@ -15,11 +15,6 @@ def get_appid(event):
     return event['appId'].rsplit('/', 1)[1]
 
 
-def log_and_return(obj):
-    log.msg(obj.code)
-    return obj
-
-
 class Consular(object):
 
     app = Klein()
@@ -52,7 +47,6 @@ class Consular(object):
                 'callbackUrl': url,
             }))
         d.addErrback(log.err)
-        d.addCallback(log_and_return)
         d.addCallback(lambda response: response.code == 200)
         return d
 
