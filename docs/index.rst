@@ -16,7 +16,7 @@ about services & tasks.
     :target: https://consular.readthedocs.org
     :alt: Consular Documentation
 
-.. image:: https://pypip.in/version/consular/badge.svg
+.. image:: https://badge.fury.io/py/consular.svg
     :target: https://pypi.python.org/pypi/consular
     :alt: Pypi Package
 
