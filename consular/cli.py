@@ -18,7 +18,8 @@ from urllib import urlencode
               help=('Auto register for Marathon event callbacks with the '
                     'registration-id. Must be unique for each consular '
                     'process.'), type=str)
-def main(scheme, host, port, consul, marathon, registration_id):
+def main(scheme, host, port,
+         consul, marathon, registration_id):  # pragma: no cover
     from consular.main import Consular
     from twisted.python import log
 
