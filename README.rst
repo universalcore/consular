@@ -27,20 +27,3 @@ Usage
 
     $ pip install consular
     $ consular --help
-
-
-Installing for local dev
-~~~~~~~~~~~~~~~~~~~~~~~~
-
-Make sure elasticsearch_ is running, then::
-
-    $ git clone https://github.com/universalcore/consulari.git
-    $ cd consular
-    $ virtualenv ve
-    $ source ve/bin/activate
-    (ve)$ pip install -e .
-    (ve)$ pip install -r requirements-dev.txt
-
-
-.. _Marathon: http://mesosphere.github.io/marathon/
-.. _Consul: http://consul.io/
