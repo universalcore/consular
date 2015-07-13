@@ -135,7 +135,7 @@ class Consular(object):
 
     def update_task_killed(self, request, event):
         d = self.consul_request('PUT', '/v1/agent/service/deregister/%s' % (
-            get_appid(event),))
+            event['taskId'],))
         d.addCallback(lambda _: json.dumps({'status': 'ok'}))
         return d
 

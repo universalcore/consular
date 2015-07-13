@@ -141,7 +141,7 @@ class ConsularTest(TestCase):
         self.assertEqual(request['path'], '/v1/agent/service/register')
         self.assertEqual(request['data'], {
             'Name': 'my-app',
-            'taskId': 'my-app_0-1396592784349',
+            'ID': 'my-app_0-1396592784349',
             'Address': 'slave-1234.acme.org',
             'Port': 31372,
         })
