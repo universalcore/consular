@@ -4,15 +4,15 @@ from urllib import urlencode
 from twisted.internet import reactor
 from twisted.web.client import HTTPConnectionPool
 from twisted.internet.defer import (
-    succeed, inlineCallbacks, returnValue)
+    succeed, inlineCallbacks, returnValue, gatherResults)
 from twisted.python import log
 
 import treq
 from klein import Klein
 
 
-def get_appid(event):
-    return event['appId'].rsplit('/', 1)[1]
+def get_appid(app_id_string):
+    return app_id_string.rsplit('/', 1)[1]
 
 
 class Consular(object):
@@ -64,6 +64,7 @@ class Consular(object):
             method, ('%s%s' % (self.marathon_endpoint, path)).encode('utf-8'),
             headers={
                 'Content-Type': 'application/json',
+                'Accept': 'application/json',
             },
             data=(json.dumps(data) if data is not None else None),
             pool=self.pool)
@@ -73,6 +74,7 @@ class Consular(object):
             method, ('%s%s' % (self.consul_endpoint, path)).encode('utf-8'),
             headers={
                 'Content-Type': 'application/json',
+                'Accept': 'application/json',
             },
             data=(json.dumps(data) if data is not None else None),
             pool=self.pool)
@@ -112,7 +114,7 @@ class Consular(object):
         # NOTE: Marathon sends a list of ports, I don't know yet when & if
         #       there are multiple values in that list.
         d = self.consul_request('PUT', '/v1/agent/service/register', {
-            "Name": get_appid(event),
+            "Name": get_appid(event['appId']),
             "ID": event['taskId'],
             "Address": event['host'],
             "Port": event['ports'][0],
@@ -136,4 +138,25 @@ class Consular(object):
         })
 
     def sync_tasks(self):
-        pass
+        d = self.marathon_request('GET', '/v2/apps')
+        d.addCallback(lambda response: response.json())
+        d.addCallback(
+            lambda data: gatherResults(
+                [self.sync_app(app) for app in data['apps']]))
+        return d
+
+    def sync_app(self, app):
+        app_id = app['id']
+        d = self.marathon_request('GET', '/v2/apps%s/tasks' % (app_id,))
+        d.addCallback(lambda response: response.json())
+        d.addCallback(lambda data: gatherResults(
+            self.sync_app_task(app, task) for task in data['tasks']))
+        return d
+
+    def sync_app_task(self, app, task):
+        return self.consul_request('PUT', '/v1/agent/service/register', {
+            'Name': get_appid(app['id']),
+            'ID': task['id'],
+            'Address': task['host'],
+            'Port': task['ports'][0]
+        })
