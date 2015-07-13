@@ -32,9 +32,7 @@ Usage
 Installing for local dev
 ~~~~~~~~~~~~~~~~~~~~~~~~
 
-Make sure elasticsearch_ is running, then::
-
-    $ git clone https://github.com/universalcore/consulari.git
+    $ git clone https://github.com/universalcore/consular.git
     $ cd consular
     $ virtualenv ve
     $ source ve/bin/activate
