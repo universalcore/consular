@@ -126,6 +126,7 @@ class Consular(object):
         #       there are multiple values in that list.
         d = self.consul_request('PUT', '/v1/agent/service/register', {
             "Name": get_appid(event),
+            "ID": event['taskId'],
             "Address": event['host'],
             "Port": event['ports'][0],
         })
