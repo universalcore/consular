@@ -48,10 +48,13 @@ class ConsularTest(TestCase):
         self.patch(self.consular, 'consul_request', mock_consul_request)
 
     def request(self, method, path, data=None):
-        return treq.request(method, 'http://localhost:%s%s' % (
-            self.listener_port,
-            path
-        ), data=(json.dumps(data) if data else None), pool=self.pool)
+        return treq.request(
+            method, 'http://localhost:%s%s' % (
+                self.listener_port,
+                path
+                ),
+            data=(json.dumps(data) if data is not None else None),
+            pool=self.pool)
 
     def tearDown(self):
         pass
@@ -61,6 +64,22 @@ class ConsularTest(TestCase):
         response = yield self.request('GET', '/')
         self.assertEqual(response.code, 200)
         self.assertEqual((yield response.json()), [])
+
+    @inlineCallbacks
+    def test_handle_unknown_event(self):
+        response = yield self.request('POST', '/events', {'eventType': 'Foo'})
+        data = yield response.json()
+        self.assertEqual(data, {
+            'error': 'Event type Foo not supported.'
+        })
+
+    @inlineCallbacks
+    def test_handle_unspecified_event(self):
+        response = yield self.request('POST', '/events', {})
+        data = yield response.json()
+        self.assertEqual(data, {
+            'error': 'Event type None not supported.'
+        })
 
     @inlineCallbacks
     def test_status_update_event(self):

@@ -57,5 +57,5 @@ class Consular(object):
         request.setHeader('Content-Type', 'application/json')
         request.setResponseCode(400)  # bad request
         return json.dumps({
-            'error': 'Event type %s not supported' % (event.get('eventType'),)
+            'error': 'Event type %s not supported.' % (event.get('eventType'),)
         })
