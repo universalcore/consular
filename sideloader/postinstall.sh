@@ -4,4 +4,5 @@ cd "${INSTALLDIR}/${REPO}/"
 
 $pip install -e "${INSTALLDIR}/${REPO}/"
 
-sudo supervisorcl restart consular
+supervisorctl restart consular
+supervisorctl restart consul-template
