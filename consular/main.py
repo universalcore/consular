@@ -113,12 +113,8 @@ class Consular(object):
     def update_task_running(self, request, event):
         # NOTE: Marathon sends a list of ports, I don't know yet when & if
         #       there are multiple values in that list.
-        d = self.consul_request('PUT', '/v1/agent/service/register', {
-            "Name": get_appid(event['appId']),
-            "ID": event['taskId'],
-            "Address": event['host'],
-            "Port": event['ports'][0],
-        })
+        d = self.get_app(event['appId'])
+        d.addCallback(lambda app: self.sync_app(app))
         d.addCallback(lambda _: json.dumps({'status': 'ok'}))
         return d
 
@@ -143,6 +139,12 @@ class Consular(object):
         d.addCallback(
             lambda data: gatherResults(
                 [self.sync_app(app) for app in data['apps']]))
+        return d
+
+    def get_app(self, app_id):
+        d = self.marathon_request('GET', '/v2/apps%s' % (app_id,))
+        d.addCallback(lambda response: response.json())
+        d.addCallback(lambda data: data['app'])
         return d
 
     def sync_app(self, app):
