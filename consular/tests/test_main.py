@@ -136,6 +136,33 @@ class ConsularTest(TestCase):
             "ports": [31372],
             "version": "2014-04-04T06:26:23.051Z"
         })
+
+        # We should get the app info for the event
+        marathon_app_request = yield self.marathon_requests.get()
+        self.assertEqual(marathon_app_request['method'], 'GET')
+        self.assertEqual(marathon_app_request['path'],
+                         '/v2/apps/my-app')
+        marathon_app_request['deferred'].callback(
+            FakeResponse(200, [], json.dumps({
+                'app': {
+                    'id': '/my-app',
+                }
+            })))
+
+        # Then we collect the tasks for the app
+        marathon_tasks_request = yield self.marathon_requests.get()
+        self.assertEqual(marathon_tasks_request['method'], 'GET')
+        self.assertEqual(marathon_tasks_request['path'],
+                         '/v2/apps/my-app/tasks')
+        marathon_tasks_request['deferred'].callback(
+            FakeResponse(200, [], json.dumps({
+                'tasks': [{
+                    'id': 'my-app_0-1396592784349',
+                    'host': 'slave-1234.acme.org',
+                    'ports': [31372],
+                }]
+            })))
+
         request = yield self.consul_requests.get()
         self.assertEqual(request['method'], 'PUT')
         self.assertEqual(request['path'], '/v1/agent/service/register')
@@ -230,8 +257,25 @@ class ConsularTest(TestCase):
         yield d
 
     @inlineCallbacks
+    def test_sync_app_labels(self):
+        app = {
+            'id': '/my-app',
+            'labels': {'foo': 'bar'}
+        }
+        d = self.consular.sync_app_labels(app)
+        consul_request = yield self.consul_requests.get()
+        self.assertEqual(consul_request['method'], 'PUT')
+        self.assertEqual(consul_request['path'], '/v1/kv/consular/my-app/foo')
+        self.assertEqual(consul_request['data'], 'bar')
+        consul_request['deferred'].callback(
+            FakeResponse(200, [], json.dumps({})))
+        yield d
+
+    @inlineCallbacks
     def test_sync_app(self):
-        app = {'id': '/my-app'}
+        app = {
+            'id': '/my-app',
+        }
         d = self.consular.sync_app(app)
         marathon_request = yield self.marathon_requests.get()
         self.assertEqual(marathon_request['path'], '/v2/apps/my-app/tasks')

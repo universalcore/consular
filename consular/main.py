@@ -1,6 +1,6 @@
 import json
 
-from urllib import urlencode
+from urllib import quote, urlencode
 from twisted.internet import reactor
 from twisted.web.client import HTTPConnectionPool
 from twisted.internet.defer import (
@@ -113,12 +113,8 @@ class Consular(object):
     def update_task_running(self, request, event):
         # NOTE: Marathon sends a list of ports, I don't know yet when & if
         #       there are multiple values in that list.
-        d = self.consul_request('PUT', '/v1/agent/service/register', {
-            "Name": get_appid(event['appId']),
-            "ID": event['taskId'],
-            "Address": event['host'],
-            "Port": event['ports'][0],
-        })
+        d = self.get_app(event['appId'])
+        d.addCallback(lambda app: self.sync_app(app))
         d.addCallback(lambda _: json.dumps({'status': 'ok'}))
         return d
 
@@ -145,9 +141,29 @@ class Consular(object):
                 [self.sync_app(app) for app in data['apps']]))
         return d
 
+    def get_app(self, app_id):
+        d = self.marathon_request('GET', '/v2/apps%s' % (app_id,))
+        d.addCallback(lambda response: response.json())
+        d.addCallback(lambda data: data['app'])
+        return d
+
     def sync_app(self, app):
-        app_id = app['id']
-        d = self.marathon_request('GET', '/v2/apps%s/tasks' % (app_id,))
+        return gatherResults([
+            self.sync_app_labels(app),
+            self.sync_app_tasks(app),
+            ])
+
+    def sync_app_labels(self, app):
+        labels = app.get('labels', {})
+        return gatherResults([
+            self.consul_request(
+                'PUT', '/v1/kv/consular/%s/%s' % (
+                    quote(get_appid(app['id'])), quote(key)), value)
+            for key, value in labels.items()
+        ])
+
+    def sync_app_tasks(self, app):
+        d = self.marathon_request('GET', '/v2/apps%(id)s/tasks' % app)
         d.addCallback(lambda response: response.json())
         d.addCallback(lambda data: gatherResults(
             self.sync_app_task(app, task) for task in data['tasks']))
