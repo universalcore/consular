@@ -136,6 +136,7 @@ class Consular(object):
         })
 
     def register_service(self, name, id, address, port):
+        log.msg('Registering %s.' % (name,))
         return self.consul_request('PUT', '/v1/agent/service/register', {
             'Name': name,
             'ID': id,
@@ -144,6 +145,7 @@ class Consular(object):
         })
 
     def deregister_service(self, service_id):
+        log.msg('Deregistering %s.' % (service_id,))
         return self.consul_request('PUT', '/v1/agent/service/deregister/%s' % (
             service_id,))
 
@@ -208,13 +210,11 @@ class Consular(object):
             'GET', '/v2/apps/%s/tasks' % (app_id,))
         data = yield response.json()
         if 'tasks' not in data:
-            log.err('%s does not look like a Marathon application: %s' % (
-                app_id, data))
+            log.msg(('App %s does not look like a Marathon application, '
+                     'skipping') % (str(app_id),))
             return
 
         marathon_task_ids = set([task['id'] for task in data['tasks']])
-
         tasks_to_be_purged = consul_task_ids - marathon_task_ids
         for task_id in tasks_to_be_purged:
             yield self.deregister_service(task_id)
-            log.msg('Deleted: %s -> %s' % (app_id, task_id,))

@@ -27,9 +27,13 @@ from urllib import urlencode
                     'are not known in Marathon '
                     '(needs sync-interval enabled).'),
               default=False)
+@click.option('--logfile',
+              help='Where to log output to',
+              type=click.File('a'),
+              default=None)
 def main(scheme, host, port,
          consul, marathon, registration_id,
-         sync_interval, purge):  # pragma: no cover
+         sync_interval, purge, logfile):  # pragma: no cover
     from consular.main import Consular
     from twisted.internet.task import LoopingCall
 
@@ -46,4 +50,4 @@ def main(scheme, host, port,
         lc = LoopingCall(consular.sync_apps, purge)
         lc.start(sync_interval, now=True)
 
-    consular.app.run(host, port)
+    consular.app.run(host, port, logFile=logfile)
