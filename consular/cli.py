@@ -1,5 +1,7 @@
 import click
 
+from urllib import urlencode
+
 
 @click.command()
 @click.option('--scheme', default='http',
@@ -16,9 +18,36 @@ import click
               help=('Auto register for Marathon event callbacks with the '
                     'registration-id. Must be unique for each consular '
                     'process.'), type=str)
-def main(scheme, host, port, consul, marathon, registration_id):
+@click.option('--sync-interval',
+              help=('Automatically sync the apps in Marathon with what\'s '
+                    'in Consul every _n_ seconds. Defaults to 0 (disabled).'),
+              type=int)
+@click.option('--purge/--no-purge',
+              help=('Automatically purge dead services from Consul if they '
+                    'are not known in Marathon '
+                    '(needs sync-interval enabled).'),
+              default=False)
+@click.option('--logfile',
+              help='Where to log output to',
+              type=click.File('a'),
+              default=None)
+def main(scheme, host, port,
+         consul, marathon, registration_id,
+         sync_interval, purge, logfile):  # pragma: no cover
     from consular.main import Consular
-    consular = Consular(consul, marathon,
-                        scheme=scheme, host=host, port=port,
-                        registration_id=registration_id)
-    consular.app.run(host, port)
+    from twisted.internet.task import LoopingCall
+
+    consular = Consular(consul, marathon)
+    if registration_id:
+        events_url = "%s://%s:%s/events?%s" % (
+            scheme, host, port,
+            urlencode({
+                'registration': registration_id,
+            }))
+        consular.register_marathon_event_callback(events_url)
+
+    if sync_interval > 0:
+        lc = LoopingCall(consular.sync_apps, purge)
+        lc.start(sync_interval, now=True)
+
+    consular.app.run(host, port, logFile=logfile)
