@@ -2,10 +2,13 @@ import json
 
 from urllib import quote, urlencode
 from twisted.internet import reactor
-from twisted.web.client import HTTPConnectionPool
+from twisted.web import client
+# Twisted'de fault HTTP11 client factory is way too verbose
+client._HTTP11ClientFactory.noisy = False
 from twisted.internet.defer import (
     succeed, inlineCallbacks, returnValue, gatherResults)
 from twisted.python import log
+
 
 import treq
 from klein import Klein
@@ -22,7 +25,7 @@ class Consular(object):
     def __init__(self, consul_endpoint, marathon_endpoint):
         self.consul_endpoint = consul_endpoint
         self.marathon_endpoint = marathon_endpoint
-        self.pool = HTTPConnectionPool(reactor, persistent=False)
+        self.pool = client.HTTPConnectionPool(reactor, persistent=False)
         self.event_dispatch = {
             'status_update_event': self.handle_status_update_event,
         }
@@ -119,8 +122,7 @@ class Consular(object):
         return d
 
     def update_task_killed(self, request, event):
-        d = self.consul_request('PUT', '/v1/agent/service/deregister/%s' % (
-            event['taskId'],))
+        d = self.deregister_service(event['taskId'])
         d.addCallback(lambda _: json.dumps({'status': 'ok'}))
         return d
 
@@ -133,12 +135,26 @@ class Consular(object):
             'error': 'Event type %s not supported.' % (event_type,)
         })
 
-    def sync_apps(self):
+    def register_service(self, name, id, address, port):
+        return self.consul_request('PUT', '/v1/agent/service/register', {
+            'Name': name,
+            'ID': id,
+            'Address': address,
+            'Port': port,
+        })
+
+    def deregister_service(self, service_id):
+        return self.consul_request('PUT', '/v1/agent/service/deregister/%s' % (
+            service_id,))
+
+    def sync_apps(self, purge=False):
         d = self.marathon_request('GET', '/v2/apps')
         d.addCallback(lambda response: response.json())
         d.addCallback(
             lambda data: gatherResults(
                 [self.sync_app(app) for app in data['apps']]))
+        if purge:
+            d.addCallback(lambda _: self.purge_dead_services())
         return d
 
     def get_app(self, app_id):
@@ -151,7 +167,7 @@ class Consular(object):
         return gatherResults([
             self.sync_app_labels(app),
             self.sync_app_tasks(app),
-            ])
+        ])
 
     def sync_app_labels(self, app):
         labels = app.get('labels', {})
@@ -170,9 +186,36 @@ class Consular(object):
         return d
 
     def sync_app_task(self, app, task):
-        return self.consul_request('PUT', '/v1/agent/service/register', {
-            'Name': get_appid(app['id']),
-            'ID': task['id'],
-            'Address': task['host'],
-            'Port': task['ports'][0]
-        })
+        return self.register_service(
+            get_appid(app['id']), task['id'], task['host'], task['ports'][0])
+
+    @inlineCallbacks
+    def purge_dead_services(self):
+        response = yield self.consul_request('GET', '/v1/agent/services')
+        data = yield response.json()
+
+        # collect the task ids for the service name
+        services = {}
+        for service_id, service in data.items():
+            services.setdefault(service['Service'], set([])).add(service_id)
+
+        for app_id, task_ids in services.items():
+            yield self.purge_service_if_dead(app_id, task_ids)
+
+    @inlineCallbacks
+    def purge_service_if_dead(self, app_id, consul_task_ids):
+        response = yield self.marathon_request(
+            'GET', '/v2/apps/%s/tasks' % (app_id,))
+        data = yield response.json()
+        if 'tasks' not in data:
+            log.err('%s does not look like a Marathon application: %s' % (
+                app_id, data))
+            return
+
+        marathon_task_ids = set([task['id'] for task in data['tasks']])
+
+        tasks_to_be_purged = consul_task_ids - marathon_task_ids
+        if tasks_to_be_purged:
+            for task_id in tasks_to_be_purged:
+                yield self.deregister_service(task_id)
+                log.msg('Deleted: %s -> %s' % (app_id, task_id,))

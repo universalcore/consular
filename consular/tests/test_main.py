@@ -286,10 +286,68 @@ class ConsularTest(TestCase):
 
     @inlineCallbacks
     def test_sync_apps(self):
-        d = self.consular.sync_apps()
+        d = self.consular.sync_apps(purge=False)
         marathon_request = yield self.marathon_requests.get()
         self.assertEqual(marathon_request['path'], '/v2/apps')
         self.assertEqual(marathon_request['method'], 'GET')
         marathon_request['deferred'].callback(
             FakeResponse(200, [], json.dumps({'apps': []})))
+        yield d
+
+    @inlineCallbacks
+    def test_purge_dead_services(self):
+        d = self.consular.purge_dead_services()
+        consul_request = yield self.consul_requests.get()
+
+        # Expecting a request to list of all services in Consul,
+        # returning 2
+        self.assertEqual(consul_request['path'], '/v1/agent/services')
+        self.assertEqual(consul_request['method'], 'GET')
+        consul_request['deferred'].callback(
+            FakeResponse(200, [], json.dumps({
+                "testingapp.someid1": {
+                    "ID": "testingapp.someid1",
+                    "Service": "testingapp",
+                    "Tags": None,
+                    "Address": "machine-1",
+                    "Port": 8102
+                },
+                "testingapp.someid2": {
+                    "ID": "testingapp.someid2",
+                    "Service": "testingapp",
+                    "Tags": None,
+                    "Address": "machine-2",
+                    "Port": 8103
+                }
+            }))
+        )
+
+        # Expecting a request for the tasks for a given app, returning
+        # 1 less than Consul thinks exists.
+        testingapp_request = yield self.marathon_requests.get()
+        self.assertEqual(testingapp_request['path'],
+                         '/v2/apps/testingapp/tasks')
+        self.assertEqual(testingapp_request['method'], 'GET')
+        testingapp_request['deferred'].callback(
+            FakeResponse(200, [], json.dumps({
+                "tasks": [{
+                    "appId": "/testingapp",
+                    "id": "testingapp.someid2",
+                    "host": "machine-2",
+                    "ports": [8103],
+                    "startedAt": "2015-07-14T14:54:31.934Z",
+                    "stagedAt": "2015-07-14T14:54:31.544Z",
+                    "version": "2015-07-14T13:07:32.095Z"
+                }]
+            }))
+        )
+
+        # Expecting a service registering in Consul as a result for one
+        # of these services
+        deregister_request = yield self.consul_requests.get()
+        self.assertEqual(deregister_request['path'],
+                         '/v1/agent/service/deregister/testingapp.someid1')
+        self.assertEqual(deregister_request['method'], 'PUT')
+        deregister_request['deferred'].callback(
+            FakeResponse(200, [], json.dumps({})))
         yield d
