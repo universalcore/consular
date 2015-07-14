@@ -32,6 +32,8 @@ Usage
 Installing for local dev
 ~~~~~~~~~~~~~~~~~~~~~~~~
 
+::
+
     $ git clone https://github.com/universalcore/consular.git
     $ cd consular
     $ virtualenv ve
