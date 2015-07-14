@@ -1,6 +1,6 @@
 import json
 
-from urllib import urlencode
+from urllib import quote, urlencode
 from twisted.internet import reactor
 from twisted.web.client import HTTPConnectionPool
 from twisted.internet.defer import (
@@ -148,8 +148,22 @@ class Consular(object):
         return d
 
     def sync_app(self, app):
-        app_id = app['id']
-        d = self.marathon_request('GET', '/v2/apps%s/tasks' % (app_id,))
+        return gatherResults([
+            self.sync_app_labels(app),
+            self.sync_app_tasks(app),
+            ])
+
+    def sync_app_labels(self, app):
+        labels = app.get('labels', {})
+        return gatherResults([
+            self.consul_request(
+                'PUT', '/v1/kv/consular/%s/%s' % (
+                    quote(get_appid(app['id'])), quote(key)), value)
+            for key, value in labels.items()
+        ])
+
+    def sync_app_tasks(self, app):
+        d = self.marathon_request('GET', '/v2/apps%(id)s/tasks' % app)
         d.addCallback(lambda response: response.json())
         d.addCallback(lambda data: gatherResults(
             self.sync_app_task(app, task) for task in data['tasks']))

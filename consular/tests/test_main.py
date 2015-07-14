@@ -257,8 +257,25 @@ class ConsularTest(TestCase):
         yield d
 
     @inlineCallbacks
+    def test_sync_app_labels(self):
+        app = {
+            'id': '/my-app',
+            'labels': {'foo': 'bar'}
+        }
+        d = self.consular.sync_app_labels(app)
+        consul_request = yield self.consul_requests.get()
+        self.assertEqual(consul_request['method'], 'PUT')
+        self.assertEqual(consul_request['path'], '/v1/kv/consular/my-app/foo')
+        self.assertEqual(consul_request['data'], 'bar')
+        consul_request['deferred'].callback(
+            FakeResponse(200, [], json.dumps({})))
+        yield d
+
+    @inlineCallbacks
     def test_sync_app(self):
-        app = {'id': '/my-app'}
+        app = {
+            'id': '/my-app',
+        }
         d = self.consular.sync_app(app)
         marathon_request = yield self.marathon_requests.get()
         self.assertEqual(marathon_request['path'], '/v2/apps/my-app/tasks')
