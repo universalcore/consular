@@ -22,8 +22,14 @@ from urllib import urlencode
               help=('Automatically sync the apps in Marathon with what\'s '
                     'in Consul every _n_ seconds. Defaults to 0 (disabled).'),
               type=int)
+@click.option('--purge/--no-purge',
+              help=('Automatically purge dead services from Consul if they '
+                    'are not known in Marathon '
+                    '(needs sync-interval enabled).'),
+              default=False)
 def main(scheme, host, port,
-         consul, marathon, registration_id, sync_interval):  # pragma: no cover
+         consul, marathon, registration_id,
+         sync_interval, purge):  # pragma: no cover
     from consular.main import Consular
     from twisted.internet.task import LoopingCall
 
@@ -37,7 +43,7 @@ def main(scheme, host, port,
         consular.register_marathon_event_callback(events_url)
 
     if sync_interval > 0:
-        lc = LoopingCall(consular.sync_apps)
+        lc = LoopingCall(consular.sync_apps, purge)
         lc.start(sync_interval, now=True)
 
     consular.app.run(host, port)
