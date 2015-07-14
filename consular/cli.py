@@ -43,7 +43,7 @@ def main(scheme, host, port,
         consular.register_marathon_event_callback(events_url)
 
     if sync_interval > 0:
-        sync_lc = LoopingCall(consular.sync_apps, purge)
-        sync_lc.start(sync_interval, now=True)
+        lc = LoopingCall(consular.sync_apps, purge)
+        lc.start(sync_interval, now=True)
 
     consular.app.run(host, port)

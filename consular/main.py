@@ -167,7 +167,7 @@ class Consular(object):
         return gatherResults([
             self.sync_app_labels(app),
             self.sync_app_tasks(app),
-        ])
+            ])
 
     def sync_app_labels(self, app):
         labels = app.get('labels', {})
