@@ -215,7 +215,6 @@ class Consular(object):
         marathon_task_ids = set([task['id'] for task in data['tasks']])
 
         tasks_to_be_purged = consul_task_ids - marathon_task_ids
-        if tasks_to_be_purged:
-            for task_id in tasks_to_be_purged:
-                yield self.deregister_service(task_id)
-                log.msg('Deleted: %s -> %s' % (app_id, task_id,))
+        for task_id in tasks_to_be_purged:
+            yield self.deregister_service(task_id)
+            log.msg('Deleted: %s -> %s' % (app_id, task_id,))
