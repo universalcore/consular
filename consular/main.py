@@ -136,7 +136,8 @@ class Consular(object):
         })
 
     def register_service(self, node_id, name, id, address, port):
-        log.msg('Registering %s.' % (name,))
+        log.msg('Registering %s on %s:%s at node %s with service id %s.' % (
+            name, address, port, node_id, id))
         return self.consul_request(
             'PUT', '/v1/catalog/service/register', {
                 'Node': node_id,
@@ -149,7 +150,7 @@ class Consular(object):
             })
 
     def deregister_service(self, node_id, service_id):
-        log.msg('Deregistering %s.' % (service_id,))
+        log.msg('Deregistering %s from %s.' % (service_id, node_id))
         return self.consul_request(
             'PUT', '/v1/catalog/deregister', {
                 'Node': node_id,
