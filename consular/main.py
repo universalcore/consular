@@ -87,6 +87,7 @@ class Consular(object):
         returnValue(registered)
 
     def log_http_response(self, response, method, path, data):
+        print 'got response', repr(response)
         log.msg('%s %s with %s returned: %s' % (
             method, path, data, response.code))
         return response
@@ -96,16 +97,7 @@ class Consular(object):
             method, '%s%s' % (self.marathon_endpoint, path), data)
 
     def consul_request(self, method, url, data=None):
-        d = self._request(method, url, data, timeout=self.fallback_timeout)
-        d.addErrback(self.consul_request_error_handler)
-        return d
-
-    def consul_request_error_handler(self, failure):
-        print 'fail!', failure
-
-    def fallback_consul_request(self, method, path, data=None):
-        return self._request(
-            method, '%s%s' % (self.consul_endpoint, path), data)
+        return self._request(method, url, data, timeout=self.fallback_timeout)
 
     def _request(self, method, url, data, timeout=None):
         d = self.request(
@@ -182,9 +174,26 @@ class Consular(object):
                          app_id, service_id, address, port):
         log.msg('Registering %s at %s with %s at %s:%s.' % (
             app_id, agent_endpoint, service_id, address, port))
-        return self.consul_request(
+        d = self.consul_request(
             'PUT',
             '%s/v1/agent/service/register' % (agent_endpoint,),
+            {
+                'Name': app_id,
+                'ID': service_id,
+                'Address': address,
+                'Port': port,
+            })
+        d.addErrback(
+            self.register_service_fallback, app_id, service_id, address, port)
+        return d
+
+    def register_service_fallback(self, failure,
+                                  app_id, service_id, address, port):
+        log.msg('Falling back for %s at %s with %s at %s:%s.' % (
+            app_id, self.consul_endpoint, service_id, address, port))
+        return self.consul_request(
+            'PUT',
+            '%s/v1/agent/service/register' % (self.consul_endpoint,),
             {
                 'Name': app_id,
                 'ID': service_id,

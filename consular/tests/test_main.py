@@ -170,7 +170,8 @@ class ConsularTest(TestCase):
             'Address': 'slave-1234.acme.org',
             'Port': 31372,
         }))
-        request['deferred'].callback('ok')
+        request['deferred'].callback(
+            FakeResponse(200, [], json.dumps({})))
         response = yield d
         self.assertEqual((yield response.json()), {
             'status': 'ok'
@@ -195,7 +196,8 @@ class ConsularTest(TestCase):
             request['url'],
             ('http://slave-1234.acme.org:8500'
              '/v1/agent/service/deregister/my-app_0-1396592784349'))
-        request['deferred'].callback('ok')
+        request['deferred'].callback(
+            FakeResponse(200, [], json.dumps({})))
         response = yield d
         self.assertEqual((yield response.json()), {
             'status': 'ok'
@@ -254,7 +256,8 @@ class ConsularTest(TestCase):
             'Port': 1234,
         }))
         self.assertEqual(consul_request['method'], 'PUT')
-        consul_request['deferred'].callback('')
+        consul_request['deferred'].callback(
+            FakeResponse(200, [], json.dumps({})))
         yield d
 
     @inlineCallbacks
@@ -369,3 +372,24 @@ class ConsularTest(TestCase):
         deregister_request['deferred'].callback(
             FakeResponse(200, [], json.dumps({})))
         yield d
+
+    @inlineCallbacks
+    def test_fallback_to_main_consul(self):
+        self.consular.register_service(
+            'http://foo:8500', 'app_id', 'service_id', 'foo', 1234)
+        request = yield self.requests.get()
+        self.assertEqual(
+            request['url'],
+            'http://foo:8500/v1/agent/service/register')
+        request['deferred'].errback(Exception('Something terrible'))
+
+        fallback_request = yield self.requests.get()
+        self.assertEqual(
+            fallback_request['url'],
+            'http://localhost:8500/v1/agent/service/register')
+        self.assertEqual(fallback_request['data'], json.dumps({
+            'Name': 'app_id',
+            'ID': 'service_id',
+            'Address': 'foo',
+            'Port': 1234,
+        }))
