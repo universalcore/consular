@@ -63,5 +63,5 @@ def main(scheme, host, port,
         lc = LoopingCall(consular.sync_apps, purge)
         lc.start(sync_interval, now=True)
 
-    consular.run(host, port, log_file=logfile)
+    consular.run(host, port)
     reactor.run()
