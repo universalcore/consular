@@ -38,7 +38,7 @@ class ConsularTest(TestCase):
         self.consular = Consular(
             'http://localhost:8500',
             'http://localhost:8080',
-            True
+            False
         )
         self.consular.debug = True
 
@@ -375,6 +375,7 @@ class ConsularTest(TestCase):
 
     @inlineCallbacks
     def test_fallback_to_main_consul(self):
+        self.consular.enable_fallback = True
         self.consular.register_service(
             'http://foo:8500', 'app_id', 'service_id', 'foo', 1234)
         request = yield self.requests.get()
