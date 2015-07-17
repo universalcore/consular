@@ -3,7 +3,7 @@ import json
 from urllib import quote, urlencode
 from twisted.internet import reactor
 from twisted.web import client, server
-# Twisted'de fault HTTP11 client factory is way too verbose
+# Twisted's fault HTTP11 client factory is way too verbose
 client._HTTP11ClientFactory.noisy = False
 from twisted.internet.defer import (
     succeed, inlineCallbacks, returnValue, gatherResults)
@@ -16,6 +16,10 @@ from klein import Klein
 
 def get_appid(app_id_string):
     return app_id_string.rsplit('/', 1)[1]
+
+
+def get_agent_endpoint(host):
+    return 'http://%s:8500' % (host,)
 
 
 class ConsularSite(server.Site):
@@ -33,11 +37,14 @@ class Consular(object):
     debug = False
     clock = reactor
     timeout = 5
+    fallback_timeout = 2
+    requester = lambda self, *a, **kw: treq.request(*a, **kw)
 
-    def __init__(self, consul_endpoint, marathon_endpoint):
+    def __init__(self, consul_endpoint, marathon_endpoint, enable_fallback):
         self.consul_endpoint = consul_endpoint
         self.marathon_endpoint = marathon_endpoint
         self.pool = client.HTTPConnectionPool(self.clock, persistent=False)
+        self.enable_fallback = enable_fallback
         self.event_dispatch = {
             'status_update_event': self.handle_status_update_event,
         }
@@ -85,31 +92,25 @@ class Consular(object):
         return response
 
     def marathon_request(self, method, path, data=None):
-        d = treq.request(
-            method, ('%s%s' % (self.marathon_endpoint, path)).encode('utf-8'),
-            headers={
-                'Content-Type': 'application/json',
-                'Accept': 'application/json',
-            },
-            data=(json.dumps(data) if data is not None else None),
-            pool=self.pool,
-            timeout=self.timeout)
-        if self.debug:
-            d.addCallback(self.log_http_response, method, path, data)
-        return d
+        return self._request(
+            method, '%s%s' % (self.marathon_endpoint, path), data)
 
-    def consul_request(self, method, path, data=None):
-        d = treq.request(
-            method, ('%s%s' % (self.consul_endpoint, path)).encode('utf-8'),
+    def consul_request(self, method, url, data=None):
+        return self._request(method, url, data, timeout=self.fallback_timeout)
+
+    def _request(self, method, url, data, timeout=None):
+        d = self.requester(
+            method,
+            url.encode('utf-8'),
             headers={
                 'Content-Type': 'application/json',
                 'Accept': 'application/json',
             },
             data=(json.dumps(data) if data is not None else None),
             pool=self.pool,
-            timeout=self.timeout)
+            timeout=timeout or self.timeout)
         if self.debug:
-            d.addCallback(self.log_http_response, method, path, data)
+            d.addCallback(self.log_http_response, method, url, data)
         return d
 
     @app.route('/')
@@ -153,7 +154,9 @@ class Consular(object):
 
     def update_task_killed(self, request, event):
         d = self.deregister_service(
-            get_appid(event['appId']), event['taskId'])
+            get_agent_endpoint(event['host']),
+            get_appid(event['appId']),
+            event['taskId'])
         d.addCallback(lambda _: json.dumps({'status': 'ok'}))
         return d
 
@@ -166,20 +169,45 @@ class Consular(object):
             'error': 'Event type %s not supported.' % (event_type,)
         })
 
-    def register_service(self, name, id, address, port):
-        log.msg('Registering %s with %s at %s:%s.' % (
-            name, id, address, port))
-        return self.consul_request('PUT', '/v1/agent/service/register', {
-            'Name': name,
-            'ID': id,
-            'Address': address,
-            'Port': port,
-        })
+    def register_service(self, agent_endpoint,
+                         app_id, service_id, address, port):
+        log.msg('Registering %s at %s with %s at %s:%s.' % (
+            app_id, agent_endpoint, service_id, address, port))
+        d = self.consul_request(
+            'PUT',
+            '%s/v1/agent/service/register' % (agent_endpoint,),
+            {
+                'Name': app_id,
+                'ID': service_id,
+                'Address': address,
+                'Port': port,
+            })
+        if self.enable_fallback:
+            d.addErrback(
+                self.register_service_fallback, app_id, service_id,
+                address, port)
+        return d
 
-    def deregister_service(self, app_id, service_id):
-        log.msg('Deregistering %s with %s' % (app_id, service_id,))
-        return self.consul_request('PUT', '/v1/agent/service/deregister/%s' % (
-            service_id,))
+    def register_service_fallback(self, failure,
+                                  app_id, service_id, address, port):
+        log.msg('Falling back for %s at %s with %s at %s:%s.' % (
+            app_id, self.consul_endpoint, service_id, address, port))
+        return self.consul_request(
+            'PUT',
+            '%s/v1/agent/service/register' % (self.consul_endpoint,),
+            {
+                'Name': app_id,
+                'ID': service_id,
+                'Address': address,
+                'Port': port,
+            })
+
+    def deregister_service(self, agent_endpoint, app_id, service_id):
+        log.msg('Deregistering %s at %s with %s' % (
+            app_id, agent_endpoint, service_id,))
+        return self.consul_request(
+            'PUT', '%s/v1/agent/service/deregister/%s' % (
+                agent_endpoint, service_id,))
 
     def sync_apps(self, purge=False):
         d = self.marathon_request('GET', '/v2/apps')
@@ -205,9 +233,12 @@ class Consular(object):
 
     def sync_app_labels(self, app):
         labels = app.get('labels', {})
+        # NOTE: KV requests can go straight to the consul registry
+        #       we're already connected to, they're not local to the agents.
         return gatherResults([
             self.consul_request(
-                'PUT', '/v1/kv/consular/%s/%s' % (
+                'PUT', '%s/v1/kv/consular/%s/%s' % (
+                    self.consul_endpoint,
                     quote(get_appid(app['id'])), quote(key)), value)
             for key, value in labels.items()
         ])
@@ -221,11 +252,24 @@ class Consular(object):
 
     def sync_app_task(self, app, task):
         return self.register_service(
-            get_appid(app['id']), task['id'], task['host'], task['ports'][0])
+            get_agent_endpoint(task['host']),
+            get_appid(app['id']), task['id'],
+            task['host'], task['ports'][0])
+
+    def purge_dead_services(self):
+        d = self.consul_request(
+            'GET', '%s/v1/catalog/nodes' % (self.consul_endpoint,))
+        d.addCallback(lambda response: response.json())
+        d.addCallback(lambda data: gatherResults([
+            self.purge_dead_agent_services(
+                get_agent_endpoint(node['Address'])) for node in data
+        ]))
+        return d
 
     @inlineCallbacks
-    def purge_dead_services(self):
-        response = yield self.consul_request('GET', '/v1/agent/services')
+    def purge_dead_agent_services(self, agent_endpoint):
+        response = yield self.consul_request(
+            'GET', '%s/v1/agent/services' % (agent_endpoint,))
         data = yield response.json()
 
         # collect the task ids for the service name
@@ -234,10 +278,10 @@ class Consular(object):
             services.setdefault(service['Service'], set([])).add(service_id)
 
         for app_id, task_ids in services.items():
-            yield self.purge_service_if_dead(app_id, task_ids)
+            yield self.purge_service_if_dead(agent_endpoint, app_id, task_ids)
 
     @inlineCallbacks
-    def purge_service_if_dead(self, app_id, consul_task_ids):
+    def purge_service_if_dead(self, agent_endpoint, app_id, consul_task_ids):
         response = yield self.marathon_request(
             'GET', '/v2/apps/%s/tasks' % (app_id,))
         data = yield response.json()
@@ -249,4 +293,4 @@ class Consular(object):
         marathon_task_ids = set([task['id'] for task in data['tasks']])
         tasks_to_be_purged = consul_task_ids - marathon_task_ids
         for task_id in tasks_to_be_purged:
-            yield self.deregister_service(app_id, task_id)
+            yield self.deregister_service(agent_endpoint, app_id, task_id)
