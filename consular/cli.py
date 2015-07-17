@@ -41,6 +41,9 @@ def main(scheme, host, port,
     from consular.main import Consular
     from twisted.internet.task import LoopingCall
     from twisted.internet import reactor
+    from twisted.python import log
+
+    log.startLogging(logfile)
 
     consular = Consular(consul, marathon)
     consular.debug = debug

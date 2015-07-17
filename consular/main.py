@@ -41,8 +41,7 @@ class Consular(object):
             'status_update_event': self.handle_status_update_event,
         }
 
-    def run(self, host, port, log_file=None):
-        log.startLogging(log_file)
+    def run(self, host, port):
         site = ConsularSite(self.app.resource())
         site.debug = self.debug
         self.clock.listenTCP(port, site, interface=host)
