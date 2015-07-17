@@ -21,6 +21,7 @@ def get_appid(app_id_string):
 class Consular(object):
 
     app = Klein()
+    debug = False
 
     def __init__(self, consul_endpoint, marathon_endpoint):
         self.consul_endpoint = consul_endpoint
@@ -76,7 +77,8 @@ class Consular(object):
             },
             data=(json.dumps(data) if data is not None else None),
             pool=self.pool)
-        d.addCallback(self.log_http_response, method, path, data)
+        if self.debug:
+            d.addCallback(self.log_http_response, method, path, data)
         return d
 
     def consul_request(self, method, path, data=None):
@@ -88,7 +90,8 @@ class Consular(object):
             },
             data=(json.dumps(data) if data is not None else None),
             pool=self.pool)
-        d.addCallback(self.log_http_response, method, path, data)
+        if self.debug:
+            d.addCallback(self.log_http_response, method, path, data)
         return d
 
     @app.route('/')
