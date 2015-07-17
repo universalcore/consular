@@ -35,9 +35,12 @@ from urllib import urlencode
 @click.option('--debug/--no-debug',
               help='Log debug output or not',
               default=False)
+@click.option('--timeout',
+              help='HTTP API client timeout',
+              default=5, type=int)
 def main(scheme, host, port,
          consul, marathon, registration_id,
-         sync_interval, purge, logfile, debug):  # pragma: no cover
+         sync_interval, purge, logfile, debug, timeout):  # pragma: no cover
     from consular.main import Consular
     from twisted.internet.task import LoopingCall
     from twisted.internet import reactor
@@ -47,6 +50,7 @@ def main(scheme, host, port,
 
     consular = Consular(consul, marathon)
     consular.debug = debug
+    consular.timeout = timeout
     if registration_id:
         events_url = "%s://%s:%s/events?%s" % (
             scheme, host, port,

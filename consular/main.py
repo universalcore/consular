@@ -32,6 +32,7 @@ class Consular(object):
     app = Klein()
     debug = False
     clock = reactor
+    timeout = 5
 
     def __init__(self, consul_endpoint, marathon_endpoint):
         self.consul_endpoint = consul_endpoint
@@ -91,7 +92,8 @@ class Consular(object):
                 'Accept': 'application/json',
             },
             data=(json.dumps(data) if data is not None else None),
-            pool=self.pool)
+            pool=self.pool,
+            timeout=self.timeout)
         if self.debug:
             d.addCallback(self.log_http_response, method, path, data)
         return d
@@ -104,7 +106,8 @@ class Consular(object):
                 'Accept': 'application/json',
             },
             data=(json.dumps(data) if data is not None else None),
-            pool=self.pool)
+            pool=self.pool,
+            timeout=self.timeout)
         if self.debug:
             d.addCallback(self.log_http_response, method, path, data)
         return d
