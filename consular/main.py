@@ -87,7 +87,6 @@ class Consular(object):
         returnValue(registered)
 
     def log_http_response(self, response, method, path, data):
-        print 'got response', repr(response)
         log.msg('%s %s with %s returned: %s' % (
             method, path, data, response.code))
         return response
@@ -183,8 +182,10 @@ class Consular(object):
                 'Address': address,
                 'Port': port,
             })
-        d.addErrback(
-            self.register_service_fallback, app_id, service_id, address, port)
+        if self.enable_fallback:
+            d.addErrback(
+                self.register_service_fallback, app_id, service_id,
+                address, port)
         return d
 
     def register_service_fallback(self, failure,
