@@ -2,7 +2,7 @@ import json
 
 from urllib import quote, urlencode
 from twisted.internet import reactor
-from twisted.web import client
+from twisted.web import client, server
 # Twisted'de fault HTTP11 client factory is way too verbose
 client._HTTP11ClientFactory.noisy = False
 from twisted.internet.defer import (
@@ -18,6 +18,15 @@ def get_appid(app_id_string):
     return app_id_string.rsplit('/', 1)[1]
 
 
+class ConsularSite(server.Site):
+
+    debug = False
+
+    def log(self, request):
+        if self.debug:
+            server.Site.log(self, request)
+
+
 class Consular(object):
 
     app = Klein()
@@ -30,6 +39,13 @@ class Consular(object):
         self.event_dispatch = {
             'status_update_event': self.handle_status_update_event,
         }
+
+    def run(self, host, port, log_file=None):
+        log.startLogging(log_file)
+        site = ConsularSite(self.resource())
+        site.debug = self.debug
+        reactor.listenTCP(port, site, interface=host)
+        reactor.run()
 
     def get_marathon_event_callbacks(self):
         d = self.marathon_request('GET', '/v2/eventSubscriptions')

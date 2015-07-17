@@ -1,4 +1,5 @@
 import click
+import sys
 
 from urllib import urlencode
 
@@ -30,14 +31,18 @@ from urllib import urlencode
 @click.option('--logfile',
               help='Where to log output to',
               type=click.File('a'),
-              default=None)
+              default=sys.stdout)
+@click.option('--debug/--no-debug',
+              help='Log debug output or not',
+              default=False)
 def main(scheme, host, port,
          consul, marathon, registration_id,
-         sync_interval, purge, logfile):  # pragma: no cover
+         sync_interval, purge, logfile, debug):  # pragma: no cover
     from consular.main import Consular
     from twisted.internet.task import LoopingCall
 
     consular = Consular(consul, marathon)
+    consular.debug = debug
     if registration_id:
         events_url = "%s://%s:%s/events?%s" % (
             scheme, host, port,
@@ -50,4 +55,4 @@ def main(scheme, host, port,
         lc = LoopingCall(consular.sync_apps, purge)
         lc.start(sync_interval, now=True)
 
-    consular.app.run(host, port, logFile=logfile)
+    consular.run(host, port, log_file=logfile)
