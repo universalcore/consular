@@ -261,13 +261,13 @@ class Consular(object):
             'GET', '%s/v1/catalog/nodes' % (self.consul_endpoint,))
         d.addCallback(lambda response: response.json())
         d.addCallback(lambda data: gatherResults([
-            self.purge_dead_agent_services(node['Address']) for node in data
+            self.purge_dead_agent_services(
+                get_agent_endpoint(node['Address'])) for node in data
         ]))
         return d
 
     @inlineCallbacks
-    def purge_dead_agent_services(self, node):
-        agent_endpoint = get_agent_endpoint(node)
+    def purge_dead_agent_services(self, agent_endpoint):
         response = yield self.consul_request(
             'GET', '%s/v1/agent/services' % (agent_endpoint,))
         data = yield response.json()
@@ -281,7 +281,7 @@ class Consular(object):
             yield self.purge_service_if_dead(agent_endpoint, app_id, task_ids)
 
     @inlineCallbacks
-    def purge_service_if_dead(self, node, app_id, consul_task_ids):
+    def purge_service_if_dead(self, agent_endpoint, app_id, consul_task_ids):
         response = yield self.marathon_request(
             'GET', '/v2/apps/%s/tasks' % (app_id,))
         data = yield response.json()
@@ -293,4 +293,4 @@ class Consular(object):
         marathon_task_ids = set([task['id'] for task in data['tasks']])
         tasks_to_be_purged = consul_task_ids - marathon_task_ids
         for task_id in tasks_to_be_purged:
-            yield self.deregister_service(node, app_id, task_id)
+            yield self.deregister_service(agent_endpoint, app_id, task_id)
