@@ -42,7 +42,7 @@ from urllib import urlencode
               help=('Fallback to the default Consul agent for service '
                     'registration if the host running the mesos tasks '
                     'is not running a consul agent.'),
-              default=True)
+              default=False)
 @click.option('--fallback-timeout',
               help=('How long to wait until assuming there is no consul '
                     'agent running on a mesos-slave machine'),
