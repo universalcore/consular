@@ -62,8 +62,13 @@ class Consular(object):
             log.err('Consular event callback registration failed.')
         returnValue(registered)
 
+    def log_http_response(self, response, method, path, data):
+        log.msg('%s %s with %s returned: %s' % (
+            method, path, data, response.code))
+        return response
+
     def marathon_request(self, method, path, data=None):
-        return treq.request(
+        d = treq.request(
             method, ('%s%s' % (self.marathon_endpoint, path)).encode('utf-8'),
             headers={
                 'Content-Type': 'application/json',
@@ -71,9 +76,11 @@ class Consular(object):
             },
             data=(json.dumps(data) if data is not None else None),
             pool=self.pool)
+        d.addCallback(self.log_http_response, method, path, data)
+        return d
 
     def consul_request(self, method, path, data=None):
-        return treq.request(
+        d = treq.request(
             method, ('%s%s' % (self.consul_endpoint, path)).encode('utf-8'),
             headers={
                 'Content-Type': 'application/json',
@@ -81,6 +88,8 @@ class Consular(object):
             },
             data=(json.dumps(data) if data is not None else None),
             pool=self.pool)
+        d.addCallback(self.log_http_response, method, path, data)
+        return d
 
     @app.route('/')
     def index(self, request):
