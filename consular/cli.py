@@ -38,9 +38,19 @@ from urllib import urlencode
 @click.option('--timeout',
               help='HTTP API client timeout',
               default=5, type=int)
+@click.option('--fallback/--no-fallback',
+              help=('Fallback to the default Consul agent for service '
+                    'registration if the host running the mesos tasks '
+                    'is not running a consul agent.'),
+              default=True)
+@click.option('--fallback-timeout',
+              help=('How long to wait until assuming there is no consul '
+                    'agent running on a mesos-slave machine'),
+              default=2, type=int)
 def main(scheme, host, port,
          consul, marathon, registration_id,
-         sync_interval, purge, logfile, debug, timeout):  # pragma: no cover
+         sync_interval, purge, logfile, debug, timeout,
+         fallback, fallback_timeout):  # pragma: no cover
     from consular.main import Consular
     from twisted.internet.task import LoopingCall
     from twisted.internet import reactor
@@ -48,9 +58,10 @@ def main(scheme, host, port,
 
     log.startLogging(logfile)
 
-    consular = Consular(consul, marathon)
+    consular = Consular(consul, marathon, fallback)
     consular.debug = debug
     consular.timeout = timeout
+    consular.fallback_timeout = fallback_timeout
     if registration_id:
         events_url = "%s://%s:%s/events?%s" % (
             scheme, host, port,
