@@ -42,7 +42,7 @@ class Consular(object):
 
     def run(self, host, port, log_file=None):
         log.startLogging(log_file)
-        site = ConsularSite(self.resource())
+        site = ConsularSite(self.app.resource())
         site.debug = self.debug
         reactor.listenTCP(port, site, interface=host)
         reactor.run()
