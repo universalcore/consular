@@ -66,7 +66,7 @@ class ConsularTest(TestCase):
             })
             return d
 
-        self.patch(self.consular, 'request', mock_requests)
+        self.patch(self.consular, 'requester', mock_requests)
 
     def request(self, method, path, data=None):
         return treq.request(

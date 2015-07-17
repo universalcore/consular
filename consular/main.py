@@ -38,7 +38,7 @@ class Consular(object):
     clock = reactor
     timeout = 5
     fallback_timeout = 2
-    request = lambda *a, **kw: treq.request(*a, **kw)
+    requester = lambda self, *a, **kw: treq.request(*a, **kw)
 
     def __init__(self, consul_endpoint, marathon_endpoint, enable_fallback):
         self.consul_endpoint = consul_endpoint
@@ -99,7 +99,7 @@ class Consular(object):
         return self._request(method, url, data, timeout=self.fallback_timeout)
 
     def _request(self, method, url, data, timeout=None):
-        d = self.request(
+        d = self.requester(
             method,
             url.encode('utf-8'),
             headers={
@@ -186,7 +186,6 @@ class Consular(object):
             d.addErrback(
                 self.register_service_fallback, app_id, service_id,
                 address, port)
-        d.addErrback(log.err)
         return d
 
     def register_service_fallback(self, failure,

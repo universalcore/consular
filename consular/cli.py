@@ -41,7 +41,8 @@ from urllib import urlencode
 @click.option('--fallback/--no-fallback',
               help=('Fallback to the default Consul agent for service '
                     'registration if the host running the mesos tasks '
-                    'is not running a consul agent.'),
+                    'is not running a consul agent. '
+                    'ONLY USE IF YOU KNOW WHAT YOU ARE DOING.'),
               default=False)
 @click.option('--fallback-timeout',
               help=('How long to wait until assuming there is no consul '
