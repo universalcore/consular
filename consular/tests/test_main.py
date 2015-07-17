@@ -39,6 +39,7 @@ class ConsularTest(TestCase):
             'http://localhost:8500',
             'http://localhost:8080',
         )
+        self.consular.debug = True
 
         # spin up a site so we can test it, pretty sure Klein has better
         # ways of doing this but they're not documented anywhere.
