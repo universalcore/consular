@@ -95,10 +95,8 @@ class Consular(object):
         return self._request(
             method, '%s%s' % (self.marathon_endpoint, path), data)
 
-    def consul_request(self, agent_endpoint, method, path, data=None):
-        d = self._request(
-            method, '%s%s' % (agent_endpoint, path), data,
-            timeout=self.fallback_timeout)
+    def consul_request(self, method, url, data=None):
+        d = self._request(method, url, data, timeout=self.fallback_timeout)
         d.addErrback(self.consul_request_error_handler)
         return d
 
@@ -180,20 +178,26 @@ class Consular(object):
             'error': 'Event type %s not supported.' % (event_type,)
         })
 
-    def register_service(self, node, app_id, service_id, address, port):
+    def register_service(self, agent_endpoint,
+                         app_id, service_id, address, port):
         log.msg('Registering %s at %s with %s at %s:%s.' % (
-            app_id, node, service_id, address, port))
-        return self.consul_request(node, 'PUT', '/v1/agent/service/register', {
-            'Name': app_id,
-            'ID': service_id,
-            'Address': address,
-            'Port': port,
-        })
-
-    def deregister_service(self, node, app_id, service_id):
-        log.msg('Deregistering %s at %s with %s' % (app_id, node, service_id,))
+            app_id, agent_endpoint, service_id, address, port))
         return self.consul_request(
-            node, 'PUT', '/v1/agent/service/deregister/%s' % (service_id,))
+            'PUT',
+            '%s/v1/agent/service/register' % (agent_endpoint,),
+            {
+                'Name': app_id,
+                'ID': service_id,
+                'Address': address,
+                'Port': port,
+            })
+
+    def deregister_service(self, agent_endpoint, app_id, service_id):
+        log.msg('Deregistering %s at %s with %s' % (
+            app_id, agent_endpoint, service_id,))
+        return self.consul_request(
+            'PUT', '%s/v1/agent/service/deregister/%s' % (
+                agent_endpoint, service_id,))
 
     def sync_apps(self, purge=False):
         d = self.marathon_request('GET', '/v2/apps')
@@ -223,8 +227,8 @@ class Consular(object):
         #       we're already connected to, they're not local to the agents.
         return gatherResults([
             self.consul_request(
-                self.consul_endpoint,
-                'PUT', '/v1/kv/consular/%s/%s' % (
+                'PUT', '%s/v1/kv/consular/%s/%s' % (
+                    self.consul_endpoint,
                     quote(get_appid(app['id'])), quote(key)), value)
             for key, value in labels.items()
         ])
@@ -244,7 +248,7 @@ class Consular(object):
 
     def purge_dead_services(self):
         d = self.consul_request(
-            self.consul_endpoint, 'GET', '/v1/catalog/nodes')
+            'GET', '%s/v1/catalog/nodes' % (self.consul_endpoint,))
         d.addCallback(lambda response: response.json())
         d.addCallback(lambda data: gatherResults([
             self.purge_dead_agent_services(node['Address']) for node in data
@@ -255,7 +259,7 @@ class Consular(object):
     def purge_dead_agent_services(self, node):
         agent_endpoint = get_agent_endpoint(node)
         response = yield self.consul_request(
-            agent_endpoint, 'GET', '/v1/agent/services')
+            'GET', '%s/v1/agent/services' % (agent_endpoint,))
         data = yield response.json()
 
         # collect the task ids for the service name
