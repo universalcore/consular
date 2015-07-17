@@ -31,11 +31,12 @@ class Consular(object):
 
     app = Klein()
     debug = False
+    clock = reactor
 
     def __init__(self, consul_endpoint, marathon_endpoint):
         self.consul_endpoint = consul_endpoint
         self.marathon_endpoint = marathon_endpoint
-        self.pool = client.HTTPConnectionPool(reactor, persistent=False)
+        self.pool = client.HTTPConnectionPool(self.clock, persistent=False)
         self.event_dispatch = {
             'status_update_event': self.handle_status_update_event,
         }
@@ -44,8 +45,7 @@ class Consular(object):
         log.startLogging(log_file)
         site = ConsularSite(self.app.resource())
         site.debug = self.debug
-        reactor.listenTCP(port, site, interface=host)
-        reactor.run()
+        self.clock.listenTCP(port, site, interface=host)
 
     def get_marathon_event_callbacks(self):
         d = self.marathon_request('GET', '/v2/eventSubscriptions')

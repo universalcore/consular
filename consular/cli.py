@@ -40,6 +40,7 @@ def main(scheme, host, port,
          sync_interval, purge, logfile, debug):  # pragma: no cover
     from consular.main import Consular
     from twisted.internet.task import LoopingCall
+    from twisted.internet import reactor
 
     consular = Consular(consul, marathon)
     consular.debug = debug
@@ -56,3 +57,4 @@ def main(scheme, host, port,
         lc.start(sync_interval, now=True)
 
     consular.run(host, port, log_file=logfile)
+    reactor.run()
