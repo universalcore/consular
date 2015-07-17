@@ -250,7 +250,8 @@ class ConsularTest(TestCase):
         task = {'id': 'my-task-id', 'host': '0.0.0.0', 'ports': [1234]}
         d = self.consular.sync_app_task(app, task)
         consul_request = yield self.consul_requests.get()
-        self.assertEqual(consul_request['path'], '/v1/catalog/service/register')
+        self.assertEqual(consul_request['path'],
+                         '/v1/catalog/service/register')
         self.assertEqual(consul_request['data'], {
             'Node': '0.0.0.0',
             'Service': {
