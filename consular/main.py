@@ -186,6 +186,7 @@ class Consular(object):
             d.addErrback(
                 self.register_service_fallback, app_id, service_id,
                 address, port)
+        d.addErrback(log.err)
         return d
 
     def register_service_fallback(self, failure,
