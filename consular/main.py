@@ -131,7 +131,7 @@ class Consular(object):
         return d
 
     def update_task_killed(self, request, event):
-        d = self.deregister_service(event['host'], event['taskId'])
+        d = self.deregister_service(event['taskId'])
         d.addCallback(lambda _: json.dumps({'status': 'ok'}))
         return d
 
@@ -144,27 +144,19 @@ class Consular(object):
             'error': 'Event type %s not supported.' % (event_type,)
         })
 
-    def register_service(self, node_id, name, id, address, port):
-        log.msg('Registering %s on %s:%s at node %s with service id %s.' % (
-            name, address, port, node_id, id))
-        return self.consul_request(
-            'PUT', '/v1/catalog/service/register', {
-                'Node': node_id,
-                'Service': {
-                    'Service': name,
-                    'ID': id,
-                    'Address': address,
-                    'Port': port,
-                }
-            })
+    def register_service(self, name, id, address, port):
+        log.msg('Registering %s.' % (name,))
+        return self.consul_request('PUT', '/v1/agent/service/register', {
+            'Name': name,
+            'ID': id,
+            'Address': address,
+            'Port': port,
+        })
 
-    def deregister_service(self, node_id, service_id):
-        log.msg('Deregistering %s from %s.' % (service_id, node_id))
-        return self.consul_request(
-            'PUT', '/v1/catalog/deregister', {
-                'Node': node_id,
-                'ServiceID': service_id,
-            })
+    def deregister_service(self, service_id):
+        log.msg('Deregistering %s.' % (service_id,))
+        return self.consul_request('PUT', '/v1/agent/service/deregister/%s' % (
+            service_id,))
 
     def sync_apps(self, purge=False):
         d = self.marathon_request('GET', '/v2/apps')
@@ -206,34 +198,32 @@ class Consular(object):
 
     def sync_app_task(self, app, task):
         return self.register_service(
-            task['host'],
             get_appid(app['id']), task['id'], task['host'], task['ports'][0])
 
     @inlineCallbacks
     def purge_dead_services(self):
-        service_names_response = yield self.consul_request(
-            'GET', '/v1/catalog/services')
-        service_names_data = yield service_names_response.json()
+        response = yield self.consul_request('GET', '/v1/agent/services')
+        data = yield response.json()
 
         # collect the task ids for the service name
-        for service_name in service_names_data.keys():
-            services_response = yield self.consul_request(
-                'GET', '/v1/catalog/service/%s' % (service_name,))
-            services = yield services_response.json()
-            yield self.purge_service_if_dead(service_name, services)
+        services = {}
+        for service_id, service in data.items():
+            services.setdefault(service['Service'], set([])).add(service_id)
+
+        for app_id, task_ids in services.items():
+            yield self.purge_service_if_dead(app_id, task_ids)
 
     @inlineCallbacks
-    def purge_service_if_dead(self, service_name, services):
+    def purge_service_if_dead(self, app_id, consul_task_ids):
         response = yield self.marathon_request(
-            'GET', '/v2/apps/%s/tasks' % (service_name,))
+            'GET', '/v2/apps/%s/tasks' % (app_id,))
         data = yield response.json()
         if 'tasks' not in data:
             log.msg(('App %s does not look like a Marathon application, '
-                     'skipping') % (str(service_name),))
+                     'skipping') % (str(app_id),))
             return
 
         marathon_task_ids = set([task['id'] for task in data['tasks']])
-        for service in services:
-            if service['ServiceID'] not in marathon_task_ids:
-                yield self.deregister_service(
-                    service['Node'], service['ServiceID'])
+        tasks_to_be_purged = consul_task_ids - marathon_task_ids
+        for task_id in tasks_to_be_purged:
+            yield self.deregister_service(task_id)
