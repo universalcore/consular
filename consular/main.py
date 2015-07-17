@@ -152,7 +152,8 @@ class Consular(object):
         return d
 
     def update_task_killed(self, request, event):
-        d = self.deregister_service(event['taskId'])
+        d = self.deregister_service(
+            get_appid(event['appId']), event['taskId'])
         d.addCallback(lambda _: json.dumps({'status': 'ok'}))
         return d
 
@@ -166,7 +167,8 @@ class Consular(object):
         })
 
     def register_service(self, name, id, address, port):
-        log.msg('Registering %s.' % (name,))
+        log.msg('Registering %s with %s at %s:%s.' % (
+            name, id, address, port))
         return self.consul_request('PUT', '/v1/agent/service/register', {
             'Name': name,
             'ID': id,
@@ -174,8 +176,8 @@ class Consular(object):
             'Port': port,
         })
 
-    def deregister_service(self, service_id):
-        log.msg('Deregistering %s.' % (service_id,))
+    def deregister_service(self, app_id, service_id):
+        log.msg('Deregistering %s with %s' % (app_id, service_id,))
         return self.consul_request('PUT', '/v1/agent/service/deregister/%s' % (
             service_id,))
 
@@ -247,4 +249,4 @@ class Consular(object):
         marathon_task_ids = set([task['id'] for task in data['tasks']])
         tasks_to_be_purged = consul_task_ids - marathon_task_ids
         for task_id in tasks_to_be_purged:
-            yield self.deregister_service(task_id)
+            yield self.deregister_service(app_id, task_id)
