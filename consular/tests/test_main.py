@@ -165,12 +165,15 @@ class ConsularTest(TestCase):
 
         request = yield self.consul_requests.get()
         self.assertEqual(request['method'], 'PUT')
-        self.assertEqual(request['path'], '/v1/agent/service/register')
+        self.assertEqual(request['path'], '/v1/catalog/service/register')
         self.assertEqual(request['data'], {
-            'Name': 'my-app',
-            'ID': 'my-app_0-1396592784349',
-            'Address': 'slave-1234.acme.org',
-            'Port': 31372,
+            'Node': 'slave-1234.acme.org',
+            'Service': {
+                'Service': 'my-app',
+                'ID': 'my-app_0-1396592784349',
+                'Address': 'slave-1234.acme.org',
+                'Port': 31372,
+            }
         })
         request['deferred'].callback('ok')
         response = yield d
@@ -193,9 +196,11 @@ class ConsularTest(TestCase):
         })
         request = yield self.consul_requests.get()
         self.assertEqual(request['method'], 'PUT')
-        self.assertEqual(
-            request['path'],
-            '/v1/agent/service/deregister/my-app_0-1396592784349')
+        self.assertEqual(request['path'], '/v1/catalog/deregister')
+        self.assertEqual(request['data'], {
+            'Node': 'slave-1234.acme.org',
+            'ServiceID': 'my-app_0-1396592784349',
+        })
         request['deferred'].callback('ok')
         response = yield d
         self.assertEqual((yield response.json()), {
@@ -245,12 +250,15 @@ class ConsularTest(TestCase):
         task = {'id': 'my-task-id', 'host': '0.0.0.0', 'ports': [1234]}
         d = self.consular.sync_app_task(app, task)
         consul_request = yield self.consul_requests.get()
-        self.assertEqual(consul_request['path'], '/v1/agent/service/register')
+        self.assertEqual(consul_request['path'], '/v1/catalog/service/register')
         self.assertEqual(consul_request['data'], {
-            'Name': 'my-app',
-            'ID': 'my-task-id',
-            'Address': '0.0.0.0',
-            'Port': 1234,
+            'Node': '0.0.0.0',
+            'Service': {
+                'Service': 'my-app',
+                'ID': 'my-task-id',
+                'Address': '0.0.0.0',
+                'Port': 1234,
+            }
         })
         self.assertEqual(consul_request['method'], 'PUT')
         consul_request['deferred'].callback('')
@@ -297,29 +305,47 @@ class ConsularTest(TestCase):
     @inlineCallbacks
     def test_purge_dead_services(self):
         d = self.consular.purge_dead_services()
-        consul_request = yield self.consul_requests.get()
+        consul_services_request = yield self.consul_requests.get()
 
         # Expecting a request to list of all services in Consul,
-        # returning 2
-        self.assertEqual(consul_request['path'], '/v1/agent/services')
-        self.assertEqual(consul_request['method'], 'GET')
-        consul_request['deferred'].callback(
+        # returning 1, testingapp
+        self.assertEqual(consul_services_request['method'], 'GET')
+        self.assertEqual(consul_services_request['path'],
+                         '/v1/catalog/services')
+        consul_services_request['deferred'].callback(
             FakeResponse(200, [], json.dumps({
-                "testingapp.someid1": {
-                    "ID": "testingapp.someid1",
-                    "Service": "testingapp",
-                    "Tags": None,
-                    "Address": "machine-1",
-                    "Port": 8102
-                },
-                "testingapp.someid2": {
-                    "ID": "testingapp.someid2",
-                    "Service": "testingapp",
-                    "Tags": None,
-                    "Address": "machine-2",
-                    "Port": 8103
-                }
+                'testingapp': [],
             }))
+        )
+
+        # Expecting a request to list all service ids for the given Service
+        # returning 2
+        testingapp_services_request = yield self.consul_requests.get()
+        self.assertEqual(testingapp_services_request['method'], 'GET')
+        self.assertEqual(testingapp_services_request['path'],
+                         '/v1/catalog/service/testingapp')
+
+        testingapp_services_request['deferred'].callback(
+            FakeResponse(200, [], json.dumps([
+                {
+                    "Node": "consul-node1",
+                    "Address": "consul-address",
+                    "ServiceID": "testingapp.someid1",
+                    "ServiceName": "testingapp",
+                    "ServiceTags": None,
+                    "ServiceAddress": "machine-1",
+                    "ServicePort": 8102
+                },
+                {
+                    "Node": "consul-node2",
+                    "Address": "consul-address",
+                    "ServiceID": "testingapp.someid2",
+                    "ServiceName": "testingapp",
+                    "ServiceTags": None,
+                    "ServiceAddress": "machine-2",
+                    "ServicePort": 8103
+                }
+            ]))
         )
 
         # Expecting a request for the tasks for a given app, returning
@@ -345,9 +371,12 @@ class ConsularTest(TestCase):
         # Expecting a service registering in Consul as a result for one
         # of these services
         deregister_request = yield self.consul_requests.get()
-        self.assertEqual(deregister_request['path'],
-                         '/v1/agent/service/deregister/testingapp.someid1')
+        self.assertEqual(deregister_request['path'], '/v1/catalog/deregister')
         self.assertEqual(deregister_request['method'], 'PUT')
+        self.assertEqual(deregister_request['data'], {
+            'Node': 'consul-node1',
+            'ServiceID': 'testingapp.someid1'
+        })
         deregister_request['deferred'].callback(
             FakeResponse(200, [], json.dumps({})))
         yield d
