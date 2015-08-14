@@ -1,4 +1,5 @@
 import click
+import sys
 
 from urllib import urlencode
 
@@ -30,14 +31,38 @@ from urllib import urlencode
 @click.option('--logfile',
               help='Where to log output to',
               type=click.File('a'),
-              default=None)
+              default=sys.stdout)
+@click.option('--debug/--no-debug',
+              help='Log debug output or not',
+              default=False)
+@click.option('--timeout',
+              help='HTTP API client timeout',
+              default=5, type=int)
+@click.option('--fallback/--no-fallback',
+              help=('Fallback to the default Consul agent for service '
+                    'registration if the host running the mesos tasks '
+                    'is not running a consul agent. '
+                    'ONLY USE IF YOU KNOW WHAT YOU ARE DOING.'),
+              default=False)
+@click.option('--fallback-timeout',
+              help=('How long to wait until assuming there is no consul '
+                    'agent running on a mesos-slave machine'),
+              default=2, type=int)
 def main(scheme, host, port,
          consul, marathon, registration_id,
-         sync_interval, purge, logfile):  # pragma: no cover
+         sync_interval, purge, logfile, debug, timeout,
+         fallback, fallback_timeout):  # pragma: no cover
     from consular.main import Consular
     from twisted.internet.task import LoopingCall
+    from twisted.internet import reactor
+    from twisted.python import log
 
-    consular = Consular(consul, marathon)
+    log.startLogging(logfile)
+
+    consular = Consular(consul, marathon, fallback)
+    consular.debug = debug
+    consular.timeout = timeout
+    consular.fallback_timeout = fallback_timeout
     if registration_id:
         events_url = "%s://%s:%s/events?%s" % (
             scheme, host, port,
@@ -50,4 +75,5 @@ def main(scheme, host, port,
         lc = LoopingCall(consular.sync_apps, purge)
         lc.start(sync_interval, now=True)
 
-    consular.app.run(host, port, logFile=logfile)
+    consular.run(host, port)
+    reactor.run()

@@ -38,7 +38,9 @@ class ConsularTest(TestCase):
         self.consular = Consular(
             'http://localhost:8500',
             'http://localhost:8080',
+            False
         )
+        self.consular.debug = True
 
         # spin up a site so we can test it, pretty sure Klein has better
         # ways of doing this but they're not documented anywhere.
@@ -52,25 +54,19 @@ class ConsularTest(TestCase):
         self.addCleanup(self.pool.closeCachedConnections)
 
         # We use this to mock requests going to Consul & Marathon
-        self.consul_requests = DeferredQueue()
-        self.marathon_requests = DeferredQueue()
+        self.requests = DeferredQueue()
 
-        def mock_requests(queue):
-            def mock_it(method, path, data=None):
-                d = Deferred()
-                queue.put({
-                    'method': method,
-                    'path': path,
-                    'data': data,
-                    'deferred': d,
-                })
-                return d
-            return mock_it
+        def mock_requests(method, url, headers, data, pool, timeout):
+            d = Deferred()
+            self.requests.put({
+                'method': method,
+                'url': url,
+                'data': data,
+                'deferred': d,
+            })
+            return d
 
-        self.patch(self.consular, 'consul_request',
-                   mock_requests(self.consul_requests))
-        self.patch(self.consular, 'marathon_request',
-                   mock_requests(self.marathon_requests))
+        self.patch(self.consular, 'requester', mock_requests)
 
     def request(self, method, path, data=None):
         return treq.request(
@@ -138,10 +134,10 @@ class ConsularTest(TestCase):
         })
 
         # We should get the app info for the event
-        marathon_app_request = yield self.marathon_requests.get()
+        marathon_app_request = yield self.requests.get()
         self.assertEqual(marathon_app_request['method'], 'GET')
-        self.assertEqual(marathon_app_request['path'],
-                         '/v2/apps/my-app')
+        self.assertEqual(marathon_app_request['url'],
+                         'http://localhost:8080/v2/apps/my-app')
         marathon_app_request['deferred'].callback(
             FakeResponse(200, [], json.dumps({
                 'app': {
@@ -150,10 +146,10 @@ class ConsularTest(TestCase):
             })))
 
         # Then we collect the tasks for the app
-        marathon_tasks_request = yield self.marathon_requests.get()
+        marathon_tasks_request = yield self.requests.get()
         self.assertEqual(marathon_tasks_request['method'], 'GET')
-        self.assertEqual(marathon_tasks_request['path'],
-                         '/v2/apps/my-app/tasks')
+        self.assertEqual(marathon_tasks_request['url'],
+                         'http://localhost:8080/v2/apps/my-app/tasks')
         marathon_tasks_request['deferred'].callback(
             FakeResponse(200, [], json.dumps({
                 'tasks': [{
@@ -163,19 +159,19 @@ class ConsularTest(TestCase):
                 }]
             })))
 
-        request = yield self.consul_requests.get()
+        request = yield self.requests.get()
         self.assertEqual(request['method'], 'PUT')
-        self.assertEqual(request['path'], '/v1/catalog/service/register')
-        self.assertEqual(request['data'], {
-            'Node': 'slave-1234.acme.org',
-            'Service': {
-                'Service': 'my-app',
-                'ID': 'my-app_0-1396592784349',
-                'Address': 'slave-1234.acme.org',
-                'Port': 31372,
-            }
-        })
-        request['deferred'].callback('ok')
+        self.assertEqual(
+            request['url'],
+            'http://slave-1234.acme.org:8500/v1/agent/service/register')
+        self.assertEqual(request['data'], json.dumps({
+            'Name': 'my-app',
+            'ID': 'my-app_0-1396592784349',
+            'Address': 'slave-1234.acme.org',
+            'Port': 31372,
+        }))
+        request['deferred'].callback(
+            FakeResponse(200, [], json.dumps({})))
         response = yield d
         self.assertEqual((yield response.json()), {
             'status': 'ok'
@@ -194,14 +190,14 @@ class ConsularTest(TestCase):
             "ports": [31372],
             "version": "2014-04-04T06:26:23.051Z"
         })
-        request = yield self.consul_requests.get()
+        request = yield self.requests.get()
         self.assertEqual(request['method'], 'PUT')
-        self.assertEqual(request['path'], '/v1/catalog/deregister')
-        self.assertEqual(request['data'], {
-            'Node': 'slave-1234.acme.org',
-            'ServiceID': 'my-app_0-1396592784349',
-        })
-        request['deferred'].callback('ok')
+        self.assertEqual(
+            request['url'],
+            ('http://slave-1234.acme.org:8500'
+             '/v1/agent/service/deregister/my-app_0-1396592784349'))
+        request['deferred'].callback(
+            FakeResponse(200, [], json.dumps({})))
         response = yield d
         self.assertEqual((yield response.json()), {
             'status': 'ok'
@@ -212,14 +208,14 @@ class ConsularTest(TestCase):
         d = self.consular.register_marathon_event_callback(
             'http://localhost:7000/events?registration=the-uuid')
         d.addErrback(log.err)
-        list_callbacks_request = yield self.marathon_requests.get()
+        list_callbacks_request = yield self.requests.get()
         list_callbacks_request['deferred'].callback(
             FakeResponse(200, [], json.dumps({'callbackUrls': []})))
 
-        create_callback_request = yield self.marathon_requests.get()
+        create_callback_request = yield self.requests.get()
         self.assertEqual(
-            create_callback_request['path'],
-            '/v2/eventSubscriptions?%s' % (urlencode({
+            create_callback_request['url'],
+            'http://localhost:8080/v2/eventSubscriptions?%s' % (urlencode({
                 'callbackUrl': ('http://localhost:7000/'
                                 'events?registration=the-uuid')
             }),))
@@ -233,7 +229,7 @@ class ConsularTest(TestCase):
     def test_already_registered_with_marathon(self):
         d = self.consular.register_marathon_event_callback(
             'http://localhost:7000/events?registration=the-uuid')
-        list_callbacks_request = yield self.marathon_requests.get()
+        list_callbacks_request = yield self.requests.get()
         list_callbacks_request['deferred'].callback(
             FakeResponse(200, [], json.dumps({
                 'callbackUrls': [
@@ -245,24 +241,48 @@ class ConsularTest(TestCase):
         self.assertEqual(response, True)
 
     @inlineCallbacks
+    def test_register_with_marathon_unexpected_response(self):
+        """
+        When registering a Marathon event callback Consular checks if an event
+        callback already exists for itself. When we get the existing callbacks,
+        Consular should inform the user of any errors returned by Marathon.
+        """
+        d = self.consular.register_marathon_event_callback(
+            'http://localhost:7000/events?registration=the-uuid')
+        list_callbacks_request = yield self.requests.get()
+        list_callbacks_request['deferred'].callback(
+            FakeResponse(400, [], json.dumps({
+                'message':
+                'http event callback system is not running on this Marathon ' +
+                'instance. Please re-start this instance with ' +
+                '"--event_subscriber http_callback".'})))
+
+        failure = self.failureResultOf(d, RuntimeError)
+        self.assertEqual(
+            failure.getErrorMessage(),
+            'Unable to get existing event callbacks from Marathon: ' +
+            '\'{u\\\'message\\\': u\\\'http event callback system is not ' +
+            'running on this Marathon instance. Please re-start this ' +
+            'instance with "--event_subscriber http_callback".\\\'}\'')
+
+    @inlineCallbacks
     def test_sync_app_task(self):
         app = {'id': '/my-app'}
         task = {'id': 'my-task-id', 'host': '0.0.0.0', 'ports': [1234]}
         d = self.consular.sync_app_task(app, task)
-        consul_request = yield self.consul_requests.get()
-        self.assertEqual(consul_request['path'],
-                         '/v1/catalog/service/register')
-        self.assertEqual(consul_request['data'], {
-            'Node': '0.0.0.0',
-            'Service': {
-                'Service': 'my-app',
-                'ID': 'my-task-id',
-                'Address': '0.0.0.0',
-                'Port': 1234,
-            }
-        })
+        consul_request = yield self.requests.get()
+        self.assertEqual(
+            consul_request['url'],
+            'http://0.0.0.0:8500/v1/agent/service/register')
+        self.assertEqual(consul_request['data'], json.dumps({
+            'Name': 'my-app',
+            'ID': 'my-task-id',
+            'Address': '0.0.0.0',
+            'Port': 1234,
+        }))
         self.assertEqual(consul_request['method'], 'PUT')
-        consul_request['deferred'].callback('')
+        consul_request['deferred'].callback(
+            FakeResponse(200, [], json.dumps({})))
         yield d
 
     @inlineCallbacks
@@ -272,10 +292,11 @@ class ConsularTest(TestCase):
             'labels': {'foo': 'bar'}
         }
         d = self.consular.sync_app_labels(app)
-        consul_request = yield self.consul_requests.get()
+        consul_request = yield self.requests.get()
         self.assertEqual(consul_request['method'], 'PUT')
-        self.assertEqual(consul_request['path'], '/v1/kv/consular/my-app/foo')
-        self.assertEqual(consul_request['data'], 'bar')
+        self.assertEqual(consul_request['url'],
+                         'http://localhost:8500/v1/kv/consular/my-app/foo')
+        self.assertEqual(consul_request['data'], '"bar"')
         consul_request['deferred'].callback(
             FakeResponse(200, [], json.dumps({})))
         yield d
@@ -286,8 +307,10 @@ class ConsularTest(TestCase):
             'id': '/my-app',
         }
         d = self.consular.sync_app(app)
-        marathon_request = yield self.marathon_requests.get()
-        self.assertEqual(marathon_request['path'], '/v2/apps/my-app/tasks')
+        marathon_request = yield self.requests.get()
+        self.assertEqual(
+            marathon_request['url'],
+            'http://localhost:8080/v2/apps/my-app/tasks')
         self.assertEqual(marathon_request['method'], 'GET')
         marathon_request['deferred'].callback(
             FakeResponse(200, [], json.dumps({'tasks': []})))
@@ -296,8 +319,9 @@ class ConsularTest(TestCase):
     @inlineCallbacks
     def test_sync_apps(self):
         d = self.consular.sync_apps(purge=False)
-        marathon_request = yield self.marathon_requests.get()
-        self.assertEqual(marathon_request['path'], '/v2/apps')
+        marathon_request = yield self.requests.get()
+        self.assertEqual(marathon_request['url'],
+                         'http://localhost:8080/v2/apps')
         self.assertEqual(marathon_request['method'], 'GET')
         marathon_request['deferred'].callback(
             FakeResponse(200, [], json.dumps({'apps': []})))
@@ -306,54 +330,47 @@ class ConsularTest(TestCase):
     @inlineCallbacks
     def test_purge_dead_services(self):
         d = self.consular.purge_dead_services()
-        consul_services_request = yield self.consul_requests.get()
-
-        # Expecting a request to list of all services in Consul,
-        # returning 1, testingapp
-        self.assertEqual(consul_services_request['method'], 'GET')
-        self.assertEqual(consul_services_request['path'],
-                         '/v1/catalog/services')
-        consul_services_request['deferred'].callback(
-            FakeResponse(200, [], json.dumps({
-                'testingapp': [],
-            }))
+        consul_request = yield self.requests.get()
+        self.assertEqual(
+            consul_request['url'],
+            'http://localhost:8500/v1/catalog/nodes')
+        consul_request['deferred'].callback(
+            FakeResponse(200, [], json.dumps([{
+                'Node': 'consul-node',
+                'Address': '1.2.3.4',
+            }]))
         )
-
-        # Expecting a request to list all service ids for the given Service
+        agent_request = yield self.requests.get()
+        # Expecting a request to list of all services in Consul,
         # returning 2
-        testingapp_services_request = yield self.consul_requests.get()
-        self.assertEqual(testingapp_services_request['method'], 'GET')
-        self.assertEqual(testingapp_services_request['path'],
-                         '/v1/catalog/service/testingapp')
-
-        testingapp_services_request['deferred'].callback(
-            FakeResponse(200, [], json.dumps([
-                {
-                    "Node": "consul-node1",
-                    "Address": "consul-address",
-                    "ServiceID": "testingapp.someid1",
-                    "ServiceName": "testingapp",
-                    "ServiceTags": None,
-                    "ServiceAddress": "machine-1",
-                    "ServicePort": 8102
+        self.assertEqual(
+            agent_request['url'],
+            'http://1.2.3.4:8500/v1/agent/services')
+        self.assertEqual(agent_request['method'], 'GET')
+        agent_request['deferred'].callback(
+            FakeResponse(200, [], json.dumps({
+                "testingapp.someid1": {
+                    "ID": "testingapp.someid1",
+                    "Service": "testingapp",
+                    "Tags": None,
+                    "Address": "machine-1",
+                    "Port": 8102
                 },
-                {
-                    "Node": "consul-node2",
-                    "Address": "consul-address",
-                    "ServiceID": "testingapp.someid2",
-                    "ServiceName": "testingapp",
-                    "ServiceTags": None,
-                    "ServiceAddress": "machine-2",
-                    "ServicePort": 8103
+                "testingapp.someid2": {
+                    "ID": "testingapp.someid2",
+                    "Service": "testingapp",
+                    "Tags": None,
+                    "Address": "machine-2",
+                    "Port": 8103
                 }
-            ]))
+            }))
         )
 
         # Expecting a request for the tasks for a given app, returning
         # 1 less than Consul thinks exists.
-        testingapp_request = yield self.marathon_requests.get()
-        self.assertEqual(testingapp_request['path'],
-                         '/v2/apps/testingapp/tasks')
+        testingapp_request = yield self.requests.get()
+        self.assertEqual(testingapp_request['url'],
+                         'http://localhost:8080/v2/apps/testingapp/tasks')
         self.assertEqual(testingapp_request['method'], 'GET')
         testingapp_request['deferred'].callback(
             FakeResponse(200, [], json.dumps({
@@ -371,13 +388,34 @@ class ConsularTest(TestCase):
 
         # Expecting a service registering in Consul as a result for one
         # of these services
-        deregister_request = yield self.consul_requests.get()
-        self.assertEqual(deregister_request['path'], '/v1/catalog/deregister')
+        deregister_request = yield self.requests.get()
+        self.assertEqual(
+            deregister_request['url'],
+            ('http://1.2.3.4:8500/v1/agent/service/deregister/'
+             'testingapp.someid1'))
         self.assertEqual(deregister_request['method'], 'PUT')
-        self.assertEqual(deregister_request['data'], {
-            'Node': 'consul-node1',
-            'ServiceID': 'testingapp.someid1'
-        })
         deregister_request['deferred'].callback(
             FakeResponse(200, [], json.dumps({})))
         yield d
+
+    @inlineCallbacks
+    def test_fallback_to_main_consul(self):
+        self.consular.enable_fallback = True
+        self.consular.register_service(
+            'http://foo:8500', 'app_id', 'service_id', 'foo', 1234)
+        request = yield self.requests.get()
+        self.assertEqual(
+            request['url'],
+            'http://foo:8500/v1/agent/service/register')
+        request['deferred'].errback(Exception('Something terrible'))
+
+        fallback_request = yield self.requests.get()
+        self.assertEqual(
+            fallback_request['url'],
+            'http://localhost:8500/v1/agent/service/register')
+        self.assertEqual(fallback_request['data'], json.dumps({
+            'Name': 'app_id',
+            'ID': 'service_id',
+            'Address': 'foo',
+            'Port': 1234,
+        }))
