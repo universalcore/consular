@@ -1,0 +1,9 @@
+name: consular
+user: ubuntu
+buildscript: sideloader/deploy.sh
+postinstall: sideloader/postinstall.sh
+virtualenv_prefix: consular
+pip: []
+dependencies:
+  - libssl-dev
+  - libffi-dev

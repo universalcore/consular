@@ -1,0 +1,26 @@
+language: python
+python:
+  - "2.7"
+  - "pypy"
+cache:
+  directories:
+    - $HOME/.cache/pip
+install:
+  - pip install coveralls
+  - pip install --upgrade pip
+  - pip install flake8
+  - pip install -r requirements-dev.txt
+  - pip install -e .
+script:
+  - flake8 consular
+  - py.test consular --cov consular
+after_success:
+  - coveralls
+deploy:
+  provider: pypi
+  user: smn
+  password:
+    secure: "J2nhv8v9jd9uTtXVV6UR55XZCw2cqdik7AvXfHN+gueBNYat6p66Cwv0q1f686UErkuVexJzKUiEkW2fAdV45rVPlYQpZk2gF2nySWmDhvaAetUAI0VOTD80tqIC84kD3tz1MyPX+nNfDa5KD8hmOGM0jRfzibUb6hsgUzc3jxQ1H88mXiWXLwJVvKmntdMNlA+2XiW1YiRguFNHZSHWP0taiCVwp3/53PJyXztfuIO6/HsTi2uCd1zhyae60kx5WfeohanyvW7Fdeo3uNyaqO7je6pjKCZP1NGzMes8ul/YCQ3k+hL32PV/z+CINMjxiiwFH7mJnztevaLkdcXFehX31ir9nxhMUqhrK5lVVwuokbtZ+WUkBy5w3n67oHAIlfXPk9GPoB3wRukae3nfqQMn55ukLXb1PaEwPEbHzTQ4xDjk12b5wAsArWwTORliBuy1yuCpAl1D+1C9k8QlC1cMa8r2+pMaY4nST0WPAtRCfGwogcIqxj7lEfVA0RajCEea24BYmv67OWbNr3ANcoOyg8x9wfEaJfW3ptingPp01dgK7jpc1ze8Ch/iy0mXc/BDz1Tgq4wO02sFKj+KTiVjwNh5bHF9Rzn9n7CS5lBbAjMJCnnqaAFxuaXTCPPBDPnNKn24l3heP+brGnOqVlszvEslj539XItoEqtT4Ug="
+  on:
+    tags: true
+    all_branches: true
