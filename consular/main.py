@@ -58,8 +58,21 @@ class Consular(object):
         d = self.marathon_request('GET', '/v2/eventSubscriptions')
         d.addErrback(log.err)
         d.addCallback(lambda response: response.json())
-        d.addCallback(lambda data: data['callbackUrls'])
+        d.addCallback(self.get_marathon_event_callbacks_from_json)
         return d
+
+    def get_marathon_event_callbacks_from_json(self, json):
+        """
+        Marathon may return a bad response when we get the existing event
+        callbacks. A common cause for this is that Marathon is not properly
+        configured. Raise an exception with information from Marathon if this
+        is the case, else return the callback URLs from the JSON response.
+        """
+        if 'callbackUrls' not in json:
+            raise RuntimeError('Unable to get existing event callbacks from ' +
+                               'Marathon: %r' % (str(json),))
+
+        return json['callbackUrls']
 
     def create_marathon_event_callback(self, url):
         d = self.marathon_request(
