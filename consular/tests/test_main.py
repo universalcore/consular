@@ -241,6 +241,31 @@ class ConsularTest(TestCase):
         self.assertEqual(response, True)
 
     @inlineCallbacks
+    def test_register_with_marathon_unexpected_response(self):
+        """
+        When registering a Marathon event callback Consular checks if an event
+        callback already exists for itself. When we get the existing callbacks,
+        Consular should inform the user of any errors returned by Marathon.
+        """
+        d = self.consular.register_marathon_event_callback(
+            'http://localhost:7000/events?registration=the-uuid')
+        list_callbacks_request = yield self.requests.get()
+        list_callbacks_request['deferred'].callback(
+            FakeResponse(400, [], json.dumps({
+                'message':
+                'http event callback system is not running on this Marathon ' +
+                'instance. Please re-start this instance with ' +
+                '"--event_subscriber http_callback".'})))
+
+        failure = self.failureResultOf(d, RuntimeError)
+        self.assertEqual(
+            failure.getErrorMessage(),
+            'Unable to get existing event callbacks from Marathon: ' +
+            '\'{u\\\'message\\\': u\\\'http event callback system is not ' +
+            'running on this Marathon instance. Please re-start this ' +
+            'instance with "--event_subscriber http_callback".\\\'}\'')
+
+    @inlineCallbacks
     def test_sync_app_task(self):
         app = {'id': '/my-app'}
         task = {'id': 'my-task-id', 'host': '0.0.0.0', 'ports': [1234]}
