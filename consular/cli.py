@@ -17,8 +17,10 @@ from urllib import urlencode
               help='The Marathon HTTP API')
 @click.option('--registration-id',
               help=('Auto register for Marathon event callbacks with the '
-                    'registration-id. Must be unique for each consular '
-                    'process.'), type=str)
+                    'registration-id. Also used to identify which services in '
+                    'Consul should be maintained by consular. Must be unique '
+                    'for each consular process.'),
+              type=str)
 @click.option('--sync-interval',
               help=('Automatically sync the apps in Marathon with what\'s '
                     'in Consul every _n_ seconds. Defaults to 0 (disabled).'),
@@ -64,6 +66,7 @@ def main(scheme, host, port,
     consular.timeout = timeout
     consular.fallback_timeout = fallback_timeout
     if registration_id:
+        consular.registration_id = registration_id
         events_url = "%s://%s:%s/events?%s" % (
             scheme, host, port,
             urlencode({
