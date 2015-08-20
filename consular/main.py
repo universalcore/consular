@@ -104,6 +104,10 @@ class Consular(object):
             method, path, data, response.code))
         return response
 
+    def log_http_error(self, failure, url):
+        log.msg('Error performing request to %s' % (url,))
+        failure.raiseException()
+
     def marathon_request(self, method, path, data=None):
         return self._request(
             method, '%s%s' % (self.marathon_endpoint, path), data)
@@ -124,6 +128,7 @@ class Consular(object):
             timeout=timeout or self.timeout)
         if self.debug:
             d.addCallback(self.log_http_response, method, url, data)
+            d.addErrback(self.log_http_error, url)
         return d
 
     @app.route('/')
