@@ -38,14 +38,15 @@ class Consular(object):
     clock = reactor
     timeout = 5
     fallback_timeout = 2
-    registration_id = None
     requester = lambda self, *a, **kw: treq.request(*a, **kw)
 
-    def __init__(self, consul_endpoint, marathon_endpoint, enable_fallback):
+    def __init__(self, consul_endpoint, marathon_endpoint, enable_fallback,
+                 registration_id):
         self.consul_endpoint = consul_endpoint
         self.marathon_endpoint = marathon_endpoint
         self.pool = client.HTTPConnectionPool(self.clock, persistent=False)
         self.enable_fallback = enable_fallback
+        self.registration_id = registration_id
         self.event_dispatch = {
             'status_update_event': self.handle_status_update_event,
         }
@@ -198,10 +199,9 @@ class Consular(object):
             'Name': app_id,
             'ID': service_id,
             'Address': address,
-            'Port': port
+            'Port': port,
+            'Tags': [self._registration_tag()]
         }
-        if self.registration_id:
-            registration['Tags'] = [self._registration_tag()]
         return registration
 
     def register_service(self, agent_endpoint,
@@ -300,10 +300,8 @@ class Consular(object):
         # collect the task ids for the service name
         services = {}
         for service_id, service in data.items():
-            # If we have a registration ID, check the service for a tag that
-            # matches our registration ID
-            if (not self.registration_id
-                    or self._is_registration_in_tags(service['Tags'])):
+            # Check the service for a tag that matches our registration ID
+            if self._is_registration_in_tags(service['Tags']):
                 services.setdefault(service['Service'], set([])).add(
                     service_id)
 
@@ -325,14 +323,7 @@ class Consular(object):
             'GET', '/v2/apps/%s/tasks' % (app_id,))
         data = yield response.json()
         tasks_to_be_purged = set(consul_task_ids)
-        if 'tasks' not in data:
-            # If there are no matching tasks in Marathon and we haven't matched
-            # the service by registration ID, then skip it.
-            if not self.registration_id:
-                log.msg(('App %s does not look like a Marathon application, '
-                         'skipping') % (str(app_id),))
-                return
-        else:
+        if 'tasks' in data:
             marathon_task_ids = set([task['id'] for task in data['tasks']])
             tasks_to_be_purged -= marathon_task_ids
 

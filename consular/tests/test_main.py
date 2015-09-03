@@ -38,7 +38,8 @@ class ConsularTest(TestCase):
         self.consular = Consular(
             'http://localhost:8500',
             'http://localhost:8080',
-            False
+            False,
+            'test'
         )
         self.consular.debug = True
 
@@ -169,6 +170,7 @@ class ConsularTest(TestCase):
             'ID': 'my-app_0-1396592784349',
             'Address': 'slave-1234.acme.org',
             'Port': 31372,
+            'Tags': ['consular-reg-id:test'],
         }))
         request['deferred'].callback(
             FakeResponse(200, [], json.dumps({})))
@@ -279,6 +281,7 @@ class ConsularTest(TestCase):
             'ID': 'my-task-id',
             'Address': '0.0.0.0',
             'Port': 1234,
+            'Tags': ['consular-reg-id:test'],
         }))
         self.assertEqual(consul_request['method'], 'PUT')
         consul_request['deferred'].callback(
@@ -354,14 +357,16 @@ class ConsularTest(TestCase):
                     "Service": "testingapp",
                     "Tags": None,
                     "Address": "machine-1",
-                    "Port": 8102
+                    "Port": 8102,
+                    'Tags': ['consular-reg-id:test'],
                 },
                 "testingapp.someid2": {
                     "ID": "testingapp.someid2",
                     "Service": "testingapp",
                     "Tags": None,
                     "Address": "machine-2",
-                    "Port": 8103
+                    "Port": 8103,
+                    'Tags': ['consular-reg-id:test'],
                 }
             }))
         )
@@ -404,7 +409,6 @@ class ConsularTest(TestCase):
         Services previously registered with Consul by Consular but that no
         longer exist in Marathon should be purged if a registration ID is set.
         """
-        self.consular.registration_id = "test"
         d = self.consular.purge_dead_services()
         consul_request = yield self.requests.get()
         self.assertEqual(
@@ -495,4 +499,5 @@ class ConsularTest(TestCase):
             'ID': 'service_id',
             'Address': 'foo',
             'Port': 1234,
+            'Tags': ['consular-reg-id:test'],
         }))

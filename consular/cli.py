@@ -20,7 +20,7 @@ from urllib import urlencode
                     'registration-id. Also used to identify which services in '
                     'Consul should be maintained by consular. Must be unique '
                     'for each consular process.'),
-              type=str)
+              type=str, required=True)
 @click.option('--sync-interval',
               help=('Automatically sync the apps in Marathon with what\'s '
                     'in Consul every _n_ seconds. Defaults to 0 (disabled).'),
@@ -65,14 +65,12 @@ def main(scheme, host, port,
     consular.debug = debug
     consular.timeout = timeout
     consular.fallback_timeout = fallback_timeout
-    if registration_id:
-        consular.registration_id = registration_id
-        events_url = "%s://%s:%s/events?%s" % (
-            scheme, host, port,
-            urlencode({
-                'registration': registration_id,
-            }))
-        consular.register_marathon_event_callback(events_url)
+    events_url = "%s://%s:%s/events?%s" % (
+        scheme, host, port,
+        urlencode({
+            'registration': registration_id,
+        }))
+    consular.register_marathon_event_callback(events_url)
 
     if sync_interval > 0:
         lc = LoopingCall(consular.sync_apps, purge)
