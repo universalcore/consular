@@ -16,11 +16,10 @@ from urllib import urlencode
 @click.option('--marathon', default='http://localhost:8080',
               help='The Marathon HTTP API')
 @click.option('--registration-id',
-              help=('Auto register for Marathon event callbacks with the '
-                    'registration-id. Also used to identify which services in '
-                    'Consul should be maintained by consular. Must be unique '
+              help=('Name used to register for event callbacks in Marathon as '
+                    'well as to register services in Consul. Must be unique '
                     'for each consular process.'),
-              type=str, required=True)
+              type=str, default='consular')
 @click.option('--sync-interval',
               help=('Automatically sync the apps in Marathon with what\'s '
                     'in Consul every _n_ seconds. Defaults to 0 (disabled).'),
