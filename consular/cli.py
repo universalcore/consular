@@ -60,7 +60,7 @@ def main(scheme, host, port,
 
     log.startLogging(logfile)
 
-    consular = Consular(consul, marathon, fallback)
+    consular = Consular(consul, marathon, fallback, registration_id)
     consular.debug = debug
     consular.timeout = timeout
     consular.fallback_timeout = fallback_timeout
