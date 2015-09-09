@@ -40,11 +40,13 @@ class Consular(object):
     fallback_timeout = 2
     requester = lambda self, *a, **kw: treq.request(*a, **kw)
 
-    def __init__(self, consul_endpoint, marathon_endpoint, enable_fallback):
+    def __init__(self, consul_endpoint, marathon_endpoint, enable_fallback,
+                 registration_id):
         self.consul_endpoint = consul_endpoint
         self.marathon_endpoint = marathon_endpoint
         self.pool = client.HTTPConnectionPool(self.clock, persistent=False)
         self.enable_fallback = enable_fallback
+        self.registration_id = registration_id
         self.event_dispatch = {
             'status_update_event': self.handle_status_update_event,
         }
@@ -189,38 +191,48 @@ class Consular(object):
             'error': 'Event type %s not supported.' % (event_type,)
         })
 
+    def _registration_tag(self):
+        """
+        Get the Consul service tag used to mark a service as created by this
+        instance of Consular.
+        """
+        return 'consular-reg-id:%s' % (self.registration_id,)
+
+    def _create_service_registration(self, app_id, service_id, address, port):
+        """
+        Create the request body for registering a service with Consul.
+        """
+        registration = {
+            'Name': app_id,
+            'ID': service_id,
+            'Address': address,
+            'Port': port,
+            'Tags': [self._registration_tag()]
+        }
+        return registration
+
     def register_service(self, agent_endpoint,
                          app_id, service_id, address, port):
         log.msg('Registering %s at %s with %s at %s:%s.' % (
             app_id, agent_endpoint, service_id, address, port))
+        registration = self._create_service_registration(app_id, service_id,
+                                                         address, port)
+
         d = self.consul_request(
             'PUT',
             '%s/v1/agent/service/register' % (agent_endpoint,),
-            {
-                'Name': app_id,
-                'ID': service_id,
-                'Address': address,
-                'Port': port,
-            })
+            registration)
         if self.enable_fallback:
-            d.addErrback(
-                self.register_service_fallback, app_id, service_id,
-                address, port)
+            d.addErrback(self.register_service_fallback, registration)
         return d
 
-    def register_service_fallback(self, failure,
-                                  app_id, service_id, address, port):
-        log.msg('Falling back for %s at %s with %s at %s:%s.' % (
-            app_id, self.consul_endpoint, service_id, address, port))
+    def register_service_fallback(self, failure, registration):
+        log.msg('Falling back for %s at %s.' % (
+            registration['Name'], self.consul_endpoint))
         return self.consul_request(
             'PUT',
             '%s/v1/agent/service/register' % (self.consul_endpoint,),
-            {
-                'Name': app_id,
-                'ID': service_id,
-                'Address': address,
-                'Port': port,
-            })
+            registration)
 
     def deregister_service(self, agent_endpoint, app_id, service_id):
         log.msg('Deregistering %s at %s with %s' % (
@@ -295,22 +307,32 @@ class Consular(object):
         # collect the task ids for the service name
         services = {}
         for service_id, service in data.items():
-            services.setdefault(service['Service'], set([])).add(service_id)
+            # Check the service for a tag that matches our registration ID
+            if self._is_registration_in_tags(service['Tags']):
+                services.setdefault(service['Service'], set([])).add(
+                    service_id)
 
         for app_id, task_ids in services.items():
             yield self.purge_service_if_dead(agent_endpoint, app_id, task_ids)
+
+    def _is_registration_in_tags(self, tags):
+        """
+        Check if the Consul service was tagged with our registration ID.
+        """
+        if not tags:
+            return False
+
+        return self._registration_tag() in tags
 
     @inlineCallbacks
     def purge_service_if_dead(self, agent_endpoint, app_id, consul_task_ids):
         response = yield self.marathon_request(
             'GET', '/v2/apps/%s/tasks' % (app_id,))
         data = yield response.json()
-        if 'tasks' not in data:
-            log.msg(('App %s does not look like a Marathon application, '
-                     'skipping') % (str(app_id),))
-            return
+        tasks_to_be_purged = set(consul_task_ids)
+        if 'tasks' in data:
+            marathon_task_ids = set([task['id'] for task in data['tasks']])
+            tasks_to_be_purged -= marathon_task_ids
 
-        marathon_task_ids = set([task['id'] for task in data['tasks']])
-        tasks_to_be_purged = consul_task_ids - marathon_task_ids
         for task_id in tasks_to_be_purged:
             yield self.deregister_service(agent_endpoint, app_id, task_id)

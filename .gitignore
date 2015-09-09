@@ -3,3 +3,4 @@
 .coverage
 _trial_temp/
 /docs/_build
+htmlcov/
