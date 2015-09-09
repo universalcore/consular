@@ -30,6 +30,10 @@ class FakeResponse(object):
         return d
 
 
+class DummyConsularException(Exception):
+    pass
+
+
 class ConsularTest(TestCase):
 
     timeout = 1
@@ -488,7 +492,10 @@ class ConsularTest(TestCase):
         self.assertEqual(
             request['url'],
             'http://foo:8500/v1/agent/service/register')
-        request['deferred'].errback(Exception('Something terrible'))
+        request['deferred'].errback(
+            DummyConsularException('Something terrible'))
+        [exc] = self.flushLoggedErrors(DummyConsularException)
+        self.assertEqual(str(exc.value), 'Something terrible')
 
         fallback_request = yield self.requests.get()
         self.assertEqual(
