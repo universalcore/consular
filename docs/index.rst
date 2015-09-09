@@ -41,6 +41,13 @@ Installing for local dev
     (ve)$ pip install -e .
     (ve)$ pip install -r requirements-dev.txt
 
+Running tests
+~~~~~~~~~~~~~
+
+::
+
+    $ source ve/bin/activate
+    (ve)$ py.test consular
 
 .. _Marathon: http://mesosphere.github.io/marathon/
 .. _Consul: http://consul.io/
