@@ -32,6 +32,19 @@ class ConsularSite(server.Site):
 
 
 class Consular(object):
+    """
+    :param str consul_endpoint:
+        The HTTP endpoint for Consul (often http://example.org:8500).
+    :param str marathon_endpoint:
+        The HTTP endpoint for Marathon (often http://example.org:8080).
+    :param bool enable_fallback:
+        Fallback to the main Consul endpoint for registrations if unable
+        to reach Consul running on the machine running a specific Marathon
+        task.
+    :param str registration_id:
+        A unique parameter for this Consul server. It is used for house-keeping
+        purposes such as purging tasks that are no longer running in Marathon.
+    """
 
     app = Klein()
     debug = False
@@ -52,6 +65,14 @@ class Consular(object):
         }
 
     def run(self, host, port):
+        """
+        Starts the HTTP server.
+
+        :param str host:
+            The host to bind to (example is ``localhost``)
+        :param int port:
+            The port to listen on (example is ``7000``)
+        """
         site = ConsularSite(self.app.resource())
         site.debug = self.debug
         self.clock.listenTCP(port, site, interface=host)
@@ -64,12 +85,11 @@ class Consular(object):
         return d
 
     def get_marathon_event_callbacks_from_json(self, json):
-        """
-        Marathon may return a bad response when we get the existing event
-        callbacks. A common cause for this is that Marathon is not properly
-        configured. Raise an exception with information from Marathon if this
-        is the case, else return the callback URLs from the JSON response.
-        """
+        # NOTE:
+        # Marathon may return a bad response when we get the existing event
+        # callbacks. A common cause for this is that Marathon is not properly
+        # configured. Raise an exception with information from Marathon if this
+        # is the case, else return the callback URLs from the JSON response.
         if 'callbackUrls' not in json:
             raise RuntimeError('Unable to get existing event callbacks from ' +
                                'Marathon: %r' % (str(json),))
@@ -87,6 +107,18 @@ class Consular(object):
 
     @inlineCallbacks
     def register_marathon_event_callback(self, events_url):
+        """
+        Register Consular with Marathon to receive HTTP event callbacks.
+        To use this ensure that `Marathon is configured`_ to send HTTP event
+        callbacks for state changes in tasks.
+
+        :param str events_url:
+            The HTTP endpoint to register with Marathon for event callbacks.
+
+        .. _`Marathon is configured`:
+            https://mesosphere.github.io/marathon/docs/event-bus.html
+            #configuration
+        """
         existing_callbacks = yield self.get_marathon_event_callbacks()
         already_registered = any(
             [events_url == url for url in existing_callbacks])
@@ -142,6 +174,9 @@ class Consular(object):
 
     @app.route('/events')
     def events(self, request):
+        """
+        Listens to incoming events from Marathon on ``/events``.
+        """
         request.setHeader('Content-Type', 'application/json')
         event = json.load(request.content)
         handler = self.event_dispatch.get(
@@ -149,6 +184,24 @@ class Consular(object):
         return handler(request, event)
 
     def handle_status_update_event(self, request, event):
+        """
+        Handles status updates from Marathon.
+
+        The various task stages are handled as follows:
+
+        TASK_STAGING: ignored
+        TASK_STARTING: ignored
+        TASK_RUNNING: task data updated on Consul
+        TASK_FINISHED: task data removed from Consul
+        TASK_FAILED: task data removed from Consul
+        TASK_KILLED: task data removed from Consul
+        TASK_LOST: task data removed from Consul
+
+        :param klein.app.KleinRequest request:
+            The Klein HTTP request
+        :param dict event:
+            The Marathon event
+        """
         dispatch = {
             'TASK_STAGING': self.noop,
             'TASK_STARTING': self.noop,
@@ -213,6 +266,21 @@ class Consular(object):
 
     def register_service(self, agent_endpoint,
                          app_id, service_id, address, port):
+        """
+        Register a task in Marathon as a service in Consul
+
+        :param str agent_endpoint:
+            The HTTP endpoint of where Consul on the Mesos worker machine
+            can be accessed.
+        :param str app_id:
+            Marathon's App-id for the task.
+        :param str service_id:
+            The service-id to register it as in Consul.
+        :param str address:
+            The host address of the machine the task is running on.
+        :param int port:
+            The port number the task can be accessed on on the host machine.
+        """
         log.msg('Registering %s at %s with %s at %s:%s.' % (
             app_id, agent_endpoint, service_id, address, port))
         registration = self._create_service_registration(app_id, service_id,
@@ -235,6 +303,17 @@ class Consular(object):
             registration)
 
     def deregister_service(self, agent_endpoint, app_id, service_id):
+        """
+        Deregister a service from Consul
+
+        :param str agent_endpoint:
+            The HTTP endpoint of where Consul on the Mesos worker machine
+            can be accessed.
+        :param str app_id:
+            Marathon's App-id for the task.
+        :param str service_id:
+            The service-id to register it as in Consul.
+        """
         log.msg('Deregistering %s at %s with %s' % (
             app_id, agent_endpoint, service_id,))
         return self.consul_request(
@@ -242,6 +321,17 @@ class Consular(object):
                 agent_endpoint, service_id,))
 
     def sync_apps(self, purge=False):
+        """
+        Ensure all the apps in Marathon are registered as services
+        in Consul.
+
+        Set ``purge`` to ``True`` if you automatically want services in Consul
+        that aren't registered in Marathon to be purged. Consular only purges
+        services that have been registered with the same ``registration-id``.
+
+        :param bool purge:
+            To purge or not to purge.
+        """
         d = self.marathon_request('GET', '/v2/apps')
         d.addCallback(lambda response: response.json())
         d.addCallback(
