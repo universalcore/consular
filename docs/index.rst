@@ -4,7 +4,7 @@ Consular
 Consular is a micro-service that relays information between Marathon_ and
 Consul_. It registers itself for HTTP event callbacks with Marathon_ and makes
 the appropriate API calls to register applications that Marathon_ runs as
-services in Consul_. Registration of applications happens in the same way.
+services in Consul_. De-registrations of applications happens in the same way.
 
 Marathon_ is always considered the source of truth.
 
