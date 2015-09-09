@@ -1,8 +1,17 @@
 Consular
 ========
 
-Receive events from Marathon_, update Consul_ with the relevant information
-about services & tasks.
+Consular is a micro-service that relays information between Marathon_ and
+Consul_. It registers itself for HTTP event callbacks with Marathon_ and makes
+the appropriate API calls to register applications that Marathon_ runs as
+services in Consul_. Registration of applications happens in the same way.
+
+Marathon_ is always considered the source of truth.
+
+If Marathon application definitions contain labels_ (application metadata)
+they will be added to the Consul_ key/value store. This can be especially
+useful when Consul_ is combined with `Consul Template`_ to automatically
+generate configuration files for proxies such as HAProxy_ and Nginx_.
 
 .. image:: https://travis-ci.org/universalcore/consular.svg?branch=develop
     :target: https://travis-ci.org/universalcore/consular
@@ -51,3 +60,7 @@ Running tests
 
 .. _Marathon: http://mesosphere.github.io/marathon/
 .. _Consul: http://consul.io/
+.. _labels: https://mesosphere.github.io/marathon/docs/rest-api.html#labels-object-of-string-values
+.. _HAProxy: http://www.haproxy.org/
+.. _Nginx: http://nginx.org/
+.. _`Consul Template`: https://github.com/hashicorp/consul-template
