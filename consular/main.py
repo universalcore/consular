@@ -176,6 +176,9 @@ class Consular(object):
     def events(self, request):
         """
         Listens to incoming events from Marathon on ``/events``.
+
+        :param klein.app.KleinRequest request:
+            The Klein HTTP request
         """
         request.setHeader('Content-Type', 'application/json')
         event = json.load(request.content)
