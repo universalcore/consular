@@ -68,3 +68,10 @@ Running tests
 .. _HAProxy: http://www.haproxy.org/
 .. _Nginx: http://nginx.org/
 .. _`Consul Template`: https://github.com/hashicorp/consul-template
+
+
+Consular Class Documentation
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. automodule:: consular.main
+    :members:
