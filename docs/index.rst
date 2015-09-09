@@ -15,7 +15,7 @@ generate configuration files for proxies such as HAProxy_ and Nginx_.
 
 .. image:: http://www.websequencediagrams.com/cgi-bin/cdraw?lz=dGl0bGUgQ29uc3VsYXIsAAMHICYgTWFyYXRob24KCgACCCAtPgAgCTogTm90aWZpY2F0aW9uIG9mXG5uZXcgYXBwbAANBwoATAgALQo6IFJlZ2lzdHIAJw5zZXJ2aWNlABwVQWRkIEEASwogbWV0YWRhdGFcbihsYWJlbHMpdG8AgTcHXG5LL1Ygc3RvcgBDCACBJwotVGVtcGxhdGUAgSUTY2hhbmdlcwCBKQcAIQkgLT4gTG9hZC1CYWxhbmNlcjogR2VuZXJhdGUgbmV3XG5sb2FkLWIAFgcgY29uZmlnACIjUmVsb2FkACkHdQCCBQY&s=napkin
     :target: http://www.websequencediagrams.com/?lz=dGl0bGUgQ29uc3VsYXIsAAMHICYgTWFyYXRob24KCgACCCAtPgAgCTogTm90aWZpY2F0aW9uIG9mXG5uZXcgYXBwbAANBwoATAgALQo6IFJlZ2lzdHIAJw5zZXJ2aWNlABwVQWRkIEEASwogbWV0YWRhdGFcbihsYWJlbHMpdG8AgTcHXG5LL1Ygc3RvcgBDCACBJwotVGVtcGxhdGUAgSUTY2hhbmdlcwCBKQcAIQkgLT4gTG9hZC1CYWxhbmNlcjogR2VuZXJhdGUgbmV3XG5sb2FkLWIAFgcgY29uZmlnACIjUmVsb2FkACkHdQCCBQY&s=napkin
-    alt: consular sequence diagram
+    :alt: consular sequence diagram
 
 .. image:: https://travis-ci.org/universalcore/consular.svg?branch=develop
     :target: https://travis-ci.org/universalcore/consular
