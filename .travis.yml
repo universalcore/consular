@@ -6,7 +6,7 @@ cache:
   directories:
     - $HOME/.cache/pip
 install:
-  - pip install "cryptography<=1.0"
+  - pip install "cryptography<=1.0"  # NOTE: because pypy<2.5 on Travis
   - pip install twine
   - pip install coveralls
   - pip install --upgrade pip
