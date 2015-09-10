@@ -86,13 +86,16 @@ class ConsularTest(TestCase):
         pass
 
     def test_reg_id_tag(self):
+        """ Consular's registration ID tag is properly formed. """
         self.assertEqual(self.consular.reg_id_tag(), 'consular-reg-id=test')
 
     def test_app_id_tag(self):
+        """ Consular's application ID tag is properly formed. """
         self.assertEqual(self.consular.app_id_tag('test'),
                          'consular-app-id=test')
 
     def test_get_app_id_from_tags(self):
+        """ The app ID is successfully parsed from the Consul tags. """
         tags = [
             'randomstuff',
             'consular-reg-id=test',
@@ -101,6 +104,9 @@ class ConsularTest(TestCase):
         self.assertEqual(self.consular.get_app_id_from_tags(tags), '/my-app')
 
     def test_get_app_id_from_tags_not_found(self):
+        """
+        None is returned when the app ID cannot be found in the Consul tags.
+        """
         tags = [
             'randomstuff',
             'consular-reg-id=test',
@@ -108,6 +114,10 @@ class ConsularTest(TestCase):
         self.assertEqual(self.consular.get_app_id_from_tags(tags), None)
 
     def test_get_app_id_from_tags_multiple(self):
+        """
+        An exception is raised when multiple app IDs are found in the Consul
+        tags.
+        """
         tags = [
             'randomstuff',
             'consular-reg-id=test',
