@@ -174,7 +174,10 @@ class ConsularTest(TestCase):
             'ID': 'my-app_0-1396592784349',
             'Address': 'slave-1234.acme.org',
             'Port': 31372,
-            'Tags': ['consular-reg-id:test'],
+            'Tags': [
+                'consular-reg-id:test',
+                'consular-app-id:/my-app',
+            ],
         }))
         request['deferred'].callback(
             FakeResponse(200, [], json.dumps({})))
@@ -285,7 +288,10 @@ class ConsularTest(TestCase):
             'ID': 'my-task-id',
             'Address': '0.0.0.0',
             'Port': 1234,
-            'Tags': ['consular-reg-id:test'],
+            'Tags': [
+                'consular-reg-id:test',
+                'consular-app-id:/my-app',
+            ],
         }))
         self.assertEqual(consul_request['method'], 'PUT')
         consul_request['deferred'].callback(
@@ -487,7 +493,7 @@ class ConsularTest(TestCase):
     def test_fallback_to_main_consul(self):
         self.consular.enable_fallback = True
         self.consular.register_service(
-            'http://foo:8500', 'app_id', 'service_id', 'foo', 1234)
+            'http://foo:8500', '/app_id', 'service_id', 'foo', 1234)
         request = yield self.requests.get()
         self.assertEqual(
             request['url'],
@@ -506,5 +512,8 @@ class ConsularTest(TestCase):
             'ID': 'service_id',
             'Address': 'foo',
             'Port': 1234,
-            'Tags': ['consular-reg-id:test'],
+            'Tags': [
+                'consular-reg-id:test',
+                'consular-app-id:/app_id',
+            ],
         }))

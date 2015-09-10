@@ -14,8 +14,12 @@ import treq
 from klein import Klein
 
 
-def get_appid(app_id_string):
-    return app_id_string.rsplit('/', 1)[1]
+def get_app_name(app_id):
+    """
+    Get the app name from the marathon app ID. Separators in the ID ('/') are
+    replaced with '-'s while leading and trailing separators are removed.
+    """
+    return app_id.strip('/').replace('/', '-')
 
 
 def get_agent_endpoint(host):
@@ -233,7 +237,7 @@ class Consular(object):
     def update_task_killed(self, request, event):
         d = self.deregister_service(
             get_agent_endpoint(event['host']),
-            get_appid(event['appId']),
+            get_app_name(event['appId']),
             event['taskId'])
         d.addCallback(lambda _: json.dumps({'status': 'ok'}))
         return d
@@ -254,16 +258,26 @@ class Consular(object):
         """
         return 'consular-reg-id:%s' % (self.registration_id,)
 
+    def _application_tag(self, app_id):
+        """
+        Get the Consul service tag used to mark the Marathon path for a given
+        service.
+        """
+        return 'consular-app-id:%s' % (app_id,)
+
     def _create_service_registration(self, app_id, service_id, address, port):
         """
         Create the request body for registering a service with Consul.
         """
         registration = {
-            'Name': app_id,
+            'Name': get_app_name(app_id),
             'ID': service_id,
             'Address': address,
             'Port': port,
-            'Tags': [self._registration_tag()]
+            'Tags': [
+                self._registration_tag(),
+                self._application_tag(app_id),
+            ]
         }
         return registration
 
@@ -364,7 +378,7 @@ class Consular(object):
             self.consul_request(
                 'PUT', '%s/v1/kv/consular/%s/%s' % (
                     self.consul_endpoint,
-                    quote(get_appid(app['id'])), quote(key)), value)
+                    quote(get_app_name(app['id'])), quote(key)), value)
             for key, value in labels.items()
         ])
 
@@ -377,8 +391,7 @@ class Consular(object):
 
     def sync_app_task(self, app, task):
         return self.register_service(
-            get_agent_endpoint(task['host']),
-            get_appid(app['id']), task['id'],
+            get_agent_endpoint(task['host']), app['id'], task['id'],
             task['host'], task['ports'][0])
 
     def purge_dead_services(self):
@@ -401,9 +414,14 @@ class Consular(object):
         services = {}
         for service_id, service in data.items():
             # Check the service for a tag that matches our registration ID
-            if self._is_registration_in_tags(service['Tags']):
-                services.setdefault(service['Service'], set([])).add(
-                    service_id)
+            tags = service['Tags']
+            if self._is_registration_in_tags(tags):
+                # Get the app ID from the tags or default to the service name
+                app_id = self._get_app_id_from_tags(tags)
+                if not app_id:
+                    app_id = service['Service']
+
+                services.setdefault(app_id, set()).add(service_id)
 
         for app_id, task_ids in services.items():
             yield self.purge_service_if_dead(agent_endpoint, app_id, task_ids)
@@ -416,6 +434,24 @@ class Consular(object):
             return False
 
         return self._registration_tag() in tags
+
+    def _get_app_id_from_tags(self, tags):
+        """
+        Get the Marathon app ID from the Consular tags, or None if an app ID is
+        not found.
+        """
+        if not tags:
+            return None
+
+        matches = [tag for tag in tags if tag.startswith('consular-app-id:')]
+
+        if not matches:
+            return None
+        if len(matches) > 1:
+            raise RuntimeError('Multiple (%d) Consular app IDs found: %s'
+                               % len(matches), matches,)
+
+        return matches[0].lstrip('consular-app-id:')
 
     @inlineCallbacks
     def purge_service_if_dead(self, agent_endpoint, app_id, consul_task_ids):
