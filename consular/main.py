@@ -439,6 +439,13 @@ class Consular(object):
                 app_id = self.get_app_id_from_tags(tags)
                 if app_id:
                     services.setdefault(app_id, set()).add(service_id)
+                else:
+                    log.msg('Service "%s" does not have an app ID in its '
+                            'tags, it cannot be purged.'
+                            % (service['Service'],))
+            elif self.debug:
+                log.msg('Service "%s" is not tagged with our registration ID, '
+                        'not touching it.' % (service['Service'],))
 
         for app_id, task_ids in services.items():
             yield self.purge_service_if_dead(agent_endpoint, app_id, task_ids)
