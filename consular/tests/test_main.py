@@ -573,6 +573,45 @@ class ConsularTest(TestCase):
         yield d
 
     @inlineCallbacks
+    def test_purge_old_service_no_app_id(self):
+        """
+        Services previously registered with Consul by Consular but without an
+        app ID tagged (for some reason) should not be purged.
+        """
+        d = self.consular.purge_dead_services()
+        consul_request = yield self.requests.get()
+        self.assertEqual(
+            consul_request['url'],
+            'http://localhost:8500/v1/catalog/nodes')
+        consul_request['deferred'].callback(
+            FakeResponse(200, [], json.dumps([{
+                'Node': 'consul-node',
+                'Address': '1.2.3.4',
+            }]))
+        )
+        agent_request = yield self.requests.get()
+        self.assertEqual(
+            agent_request['url'],
+            'http://1.2.3.4:8500/v1/agent/services')
+        self.assertEqual(agent_request['method'], 'GET')
+        agent_request['deferred'].callback(
+            FakeResponse(200, [], json.dumps({
+                "testingapp.someid1": {
+                    "ID": "testingapp.someid1",
+                    "Service": "testingapp",
+                    "Tags": [
+                        "consular-reg-id=test",
+                    ],
+                    "Address": "machine-1",
+                    "Port": 8102
+                }
+            }))
+        )
+
+        # Expecting no action to be taken as there is no app ID.
+        yield d
+
+    @inlineCallbacks
     def test_fallback_to_main_consul(self):
         self.consular.enable_fallback = True
         self.consular.register_service(
