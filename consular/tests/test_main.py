@@ -85,6 +85,42 @@ class ConsularTest(TestCase):
     def tearDown(self):
         pass
 
+    def test_reg_id_tag(self):
+        self.assertEqual(self.consular.reg_id_tag(), 'consular-reg-id=test')
+
+    def test_app_id_tag(self):
+        self.assertEqual(self.consular.app_id_tag('test'),
+                         'consular-app-id=test')
+
+    def test_get_app_id_from_tags(self):
+        tags = [
+            'randomstuff',
+            'consular-reg-id=test',
+            'consular-app-id=/my-app',
+        ]
+        self.assertEqual(self.consular.get_app_id_from_tags(tags), '/my-app')
+
+    def test_get_app_id_from_tags_not_found(self):
+        tags = [
+            'randomstuff',
+            'consular-reg-id=test',
+        ]
+        self.assertEqual(self.consular.get_app_id_from_tags(tags), None)
+
+    def test_get_app_id_from_tags_multiple(self):
+        tags = [
+            'randomstuff',
+            'consular-reg-id=test',
+            'consular-app-id=/my-app',
+            'consular-app-id=/my-app2',
+        ]
+        exception = self.assertRaises(RuntimeError,
+                                      self.consular.get_app_id_from_tags, tags)
+        self.assertEqual(str(exception),
+                         'Multiple (2) Consular tags found for key '
+                         '"consular-app-id=": [\'consular-app-id=/my-app\', '
+                         '\'consular-app-id=/my-app2\']')
+
     @inlineCallbacks
     def test_service(self):
         response = yield self.request('GET', '/')
@@ -175,8 +211,8 @@ class ConsularTest(TestCase):
             'Address': 'slave-1234.acme.org',
             'Port': 31372,
             'Tags': [
-                'consular-reg-id:test',
-                'consular-app-id:/my-app',
+                'consular-reg-id=test',
+                'consular-app-id=/my-app',
             ],
         }))
         request['deferred'].callback(
@@ -289,8 +325,8 @@ class ConsularTest(TestCase):
             'Address': '0.0.0.0',
             'Port': 1234,
             'Tags': [
-                'consular-reg-id:test',
-                'consular-app-id:/my-app',
+                'consular-reg-id=test',
+                'consular-app-id=/my-app',
             ],
         }))
         self.assertEqual(consul_request['method'], 'PUT')
@@ -317,8 +353,8 @@ class ConsularTest(TestCase):
             'Address': '0.0.0.0',
             'Port': 1234,
             'Tags': [
-                'consular-reg-id:test',
-                'consular-app-id:/my-group/my-app',
+                'consular-reg-id=test',
+                'consular-app-id=/my-group/my-app',
             ],
         }))
         self.assertEqual(consul_request['method'], 'PUT')
@@ -397,8 +433,8 @@ class ConsularTest(TestCase):
                     "Address": "machine-1",
                     "Port": 8102,
                     "Tags": [
-                        "consular-reg-id:test",
-                        "consular-app-id:/testinggroup/someid1",
+                        "consular-reg-id=test",
+                        "consular-app-id=/testinggroup/someid1",
                     ],
                 },
                 "testinggroup-someid1": {
@@ -408,8 +444,8 @@ class ConsularTest(TestCase):
                     "Address": "machine-2",
                     "Port": 8103,
                     "Tags": [
-                        "consular-reg-id:test",
-                        "consular-app-id:/testinggroup/someid1",
+                        "consular-reg-id=test",
+                        "consular-app-id=/testinggroup/someid1",
                     ],
                 }
             }))
@@ -479,8 +515,8 @@ class ConsularTest(TestCase):
                     "ID": "testingapp.someid1",
                     "Service": "testingapp",
                     "Tags": [
-                        "consular-reg-id:test",
-                        "consular-app-id:/testingapp",
+                        "consular-reg-id=test",
+                        "consular-app-id=/testingapp",
                     ],
                     "Address": "machine-1",
                     "Port": 8102
@@ -489,8 +525,8 @@ class ConsularTest(TestCase):
                     "ID": "testingapp.someid2",
                     "Service": "testingapp",
                     "Tags": [
-                        "consular-reg-id:blah",
-                        "consular-app-id:/testingapp",
+                        "consular-reg-id=blah",
+                        "consular-app-id=/testingapp",
                     ],
                     "Address": "machine-2",
                     "Port": 8103
@@ -550,7 +586,7 @@ class ConsularTest(TestCase):
             'Address': 'foo',
             'Port': 1234,
             'Tags': [
-                'consular-reg-id:test',
-                'consular-app-id:/app_id',
+                'consular-reg-id=test',
+                'consular-app-id=/app_id',
             ],
         }))

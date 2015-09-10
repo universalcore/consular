@@ -251,19 +251,39 @@ class Consular(object):
             'error': 'Event type %s not supported.' % (event_type,)
         })
 
-    def _registration_tag(self):
-        """
-        Get the Consul service tag used to mark a service as created by this
-        instance of Consular.
-        """
-        return 'consular-reg-id:%s' % (self.registration_id,)
+    def reg_id_tag(self):
+        """ Get the registration ID tag for this instance of Consular. """
+        return self._consular_tag('reg-id', self.registration_id)
 
-    def _application_tag(self, app_id):
+    def app_id_tag(self, app_id):
+        """ Get the app ID tag for the given app ID. """
+        return self._consular_tag('app-id', app_id)
+
+    def _consular_tag(self, tag_name, value):
+        return self._consular_tag_key(tag_name) + value
+
+    def get_app_id_from_tags(self, tags):
         """
-        Get the Consul service tag used to mark the Marathon path for a given
-        service.
+        Get the app ID from the app ID tag in the given tags, or None if the
+        tag could not be found.
         """
-        return 'consular-app-id:%s' % (app_id,)
+        return self._find_consular_tag(tags, 'app-id')
+
+    def _find_consular_tag(self, tags, tag_name):
+        pseudo_key = self._consular_tag_key(tag_name)
+        matches = [tag for tag in tags if tag.startswith(pseudo_key)]
+
+        if not matches:
+            return None
+        if len(matches) > 1:
+            raise RuntimeError('Multiple (%d) Consular tags found for key '
+                               '"%s": %s'
+                               % (len(matches), pseudo_key, matches,))
+
+        return matches[0].lstrip(pseudo_key)
+
+    def _consular_tag_key(self, tag_name):
+        return 'consular-%s=' % (tag_name,)
 
     def _create_service_registration(self, app_id, service_id, address, port):
         """
@@ -275,8 +295,8 @@ class Consular(object):
             'Address': address,
             'Port': port,
             'Tags': [
-                self._registration_tag(),
-                self._application_tag(app_id),
+                self.reg_id_tag(),
+                self.app_id_tag(app_id),
             ]
         }
         return registration
@@ -415,40 +435,13 @@ class Consular(object):
         for service_id, service in data.items():
             # Check the service for a tag that matches our registration ID
             tags = service['Tags']
-            if self._is_registration_in_tags(tags):
-                app_id = self._get_app_id_from_tags(tags)
+            if tags and self.reg_id_tag() in tags:
+                app_id = self.get_app_id_from_tags(tags)
                 if app_id:
                     services.setdefault(app_id, set()).add(service_id)
 
         for app_id, task_ids in services.items():
             yield self.purge_service_if_dead(agent_endpoint, app_id, task_ids)
-
-    def _is_registration_in_tags(self, tags):
-        """
-        Check if the Consul service was tagged with our registration ID.
-        """
-        if not tags:
-            return False
-
-        return self._registration_tag() in tags
-
-    def _get_app_id_from_tags(self, tags):
-        """
-        Get the Marathon app ID from the Consular tags, or None if an app ID is
-        not found.
-        """
-        if not tags:
-            return None
-
-        matches = [tag for tag in tags if tag.startswith('consular-app-id:')]
-
-        if not matches:
-            return None
-        if len(matches) > 1:
-            raise RuntimeError('Multiple (%d) Consular app IDs found: %s'
-                               % len(matches), matches,)
-
-        return matches[0].lstrip('consular-app-id:')
 
     @inlineCallbacks
     def purge_service_if_dead(self, agent_endpoint, app_id, consul_task_ids):
