@@ -17,9 +17,9 @@ from klein import Klein
 def get_app_name(app_id):
     """
     Get the app name from the marathon app ID. Separators in the ID ('/') are
-    replaced with '-'s while leading and trailing separators are removed.
+    replaced with '-'s while the leading separator is removed.
     """
-    return app_id.strip('/').replace('/', '-')
+    return app_id.lstrip('/').replace('/', '-')
 
 
 def get_agent_endpoint(host):
@@ -416,12 +416,9 @@ class Consular(object):
             # Check the service for a tag that matches our registration ID
             tags = service['Tags']
             if self._is_registration_in_tags(tags):
-                # Get the app ID from the tags or default to the service name
                 app_id = self._get_app_id_from_tags(tags)
-                if not app_id:
-                    app_id = service['Service']
-
-                services.setdefault(app_id, set()).add(service_id)
+                if app_id:
+                    services.setdefault(app_id, set()).add(service_id)
 
         for app_id, task_ids in services.items():
             yield self.purge_service_if_dead(agent_endpoint, app_id, task_ids)
@@ -456,7 +453,7 @@ class Consular(object):
     @inlineCallbacks
     def purge_service_if_dead(self, agent_endpoint, app_id, consul_task_ids):
         response = yield self.marathon_request(
-            'GET', '/v2/apps/%s/tasks' % (app_id,))
+            'GET', '/v2/apps%s/tasks' % (app_id,))
         data = yield response.json()
         tasks_to_be_purged = set(consul_task_ids)
         if 'tasks' in data:

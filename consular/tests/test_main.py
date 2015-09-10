@@ -390,21 +390,27 @@ class ConsularTest(TestCase):
         self.assertEqual(agent_request['method'], 'GET')
         agent_request['deferred'].callback(
             FakeResponse(200, [], json.dumps({
-                "testingapp.someid1": {
-                    "ID": "testingapp.someid1",
+                "testinggroup-someid1": {
+                    "ID": "taskid1",
                     "Service": "testingapp",
                     "Tags": None,
                     "Address": "machine-1",
                     "Port": 8102,
-                    'Tags': ['consular-reg-id:test'],
+                    "Tags": [
+                        "consular-reg-id:test",
+                        "consular-app-id:/testinggroup/someid1",
+                    ],
                 },
-                "testingapp.someid2": {
-                    "ID": "testingapp.someid2",
+                "testinggroup-someid1": {
+                    "ID": "taskid2",
                     "Service": "testingapp",
                     "Tags": None,
                     "Address": "machine-2",
                     "Port": 8103,
-                    'Tags': ['consular-reg-id:test'],
+                    "Tags": [
+                        "consular-reg-id:test",
+                        "consular-app-id:/testinggroup/someid1",
+                    ],
                 }
             }))
         )
@@ -413,13 +419,14 @@ class ConsularTest(TestCase):
         # 1 less than Consul thinks exists.
         testingapp_request = yield self.requests.get()
         self.assertEqual(testingapp_request['url'],
-                         'http://localhost:8080/v2/apps/testingapp/tasks')
+                         'http://localhost:8080/v2/apps/testinggroup/someid1/'
+                         'tasks')
         self.assertEqual(testingapp_request['method'], 'GET')
         testingapp_request['deferred'].callback(
             FakeResponse(200, [], json.dumps({
                 "tasks": [{
-                    "appId": "/testingapp",
-                    "id": "testingapp.someid2",
+                    "appId": "/testinggroup/someid1",
+                    "id": "taskid2",
                     "host": "machine-2",
                     "ports": [8103],
                     "startedAt": "2015-07-14T14:54:31.934Z",
@@ -435,7 +442,7 @@ class ConsularTest(TestCase):
         self.assertEqual(
             deregister_request['url'],
             ('http://1.2.3.4:8500/v1/agent/service/deregister/'
-             'testingapp.someid1'))
+             'testinggroup-someid1'))
         self.assertEqual(deregister_request['method'], 'PUT')
         deregister_request['deferred'].callback(
             FakeResponse(200, [], json.dumps({})))
@@ -472,7 +479,8 @@ class ConsularTest(TestCase):
                     "ID": "testingapp.someid1",
                     "Service": "testingapp",
                     "Tags": [
-                        "consular-reg-id:test"
+                        "consular-reg-id:test",
+                        "consular-app-id:/testingapp",
                     ],
                     "Address": "machine-1",
                     "Port": 8102
@@ -481,7 +489,8 @@ class ConsularTest(TestCase):
                     "ID": "testingapp.someid2",
                     "Service": "testingapp",
                     "Tags": [
-                        "consular-reg-id:blah"
+                        "consular-reg-id:blah",
+                        "consular-app-id:/testingapp",
                     ],
                     "Address": "machine-2",
                     "Port": 8103
