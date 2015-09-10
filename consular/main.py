@@ -32,6 +32,19 @@ class ConsularSite(server.Site):
 
 
 class Consular(object):
+    """
+    :param str consul_endpoint:
+        The HTTP endpoint for Consul (often http://example.org:8500).
+    :param str marathon_endpoint:
+        The HTTP endpoint for Marathon (often http://example.org:8080).
+    :param bool enable_fallback:
+        Fallback to the main Consul endpoint for registrations if unable
+        to reach Consul running on the machine running a specific Marathon
+        task.
+    :param str registration_id:
+        A unique parameter for this Consul server. It is used for house-keeping
+        purposes such as purging tasks that are no longer running in Marathon.
+    """
 
     app = Klein()
     debug = False
@@ -40,16 +53,26 @@ class Consular(object):
     fallback_timeout = 2
     requester = lambda self, *a, **kw: treq.request(*a, **kw)
 
-    def __init__(self, consul_endpoint, marathon_endpoint, enable_fallback):
+    def __init__(self, consul_endpoint, marathon_endpoint, enable_fallback,
+                 registration_id):
         self.consul_endpoint = consul_endpoint
         self.marathon_endpoint = marathon_endpoint
         self.pool = client.HTTPConnectionPool(self.clock, persistent=False)
         self.enable_fallback = enable_fallback
+        self.registration_id = registration_id
         self.event_dispatch = {
             'status_update_event': self.handle_status_update_event,
         }
 
     def run(self, host, port):
+        """
+        Starts the HTTP server.
+
+        :param str host:
+            The host to bind to (example is ``localhost``)
+        :param int port:
+            The port to listen on (example is ``7000``)
+        """
         site = ConsularSite(self.app.resource())
         site.debug = self.debug
         self.clock.listenTCP(port, site, interface=host)
@@ -62,12 +85,11 @@ class Consular(object):
         return d
 
     def get_marathon_event_callbacks_from_json(self, json):
-        """
-        Marathon may return a bad response when we get the existing event
-        callbacks. A common cause for this is that Marathon is not properly
-        configured. Raise an exception with information from Marathon if this
-        is the case, else return the callback URLs from the JSON response.
-        """
+        # NOTE:
+        # Marathon may return a bad response when we get the existing event
+        # callbacks. A common cause for this is that Marathon is not properly
+        # configured. Raise an exception with information from Marathon if this
+        # is the case, else return the callback URLs from the JSON response.
         if 'callbackUrls' not in json:
             raise RuntimeError('Unable to get existing event callbacks from ' +
                                'Marathon: %r' % (str(json),))
@@ -85,6 +107,18 @@ class Consular(object):
 
     @inlineCallbacks
     def register_marathon_event_callback(self, events_url):
+        """
+        Register Consular with Marathon to receive HTTP event callbacks.
+        To use this ensure that `Marathon is configured`_ to send HTTP event
+        callbacks for state changes in tasks.
+
+        :param str events_url:
+            The HTTP endpoint to register with Marathon for event callbacks.
+
+        .. _`Marathon is configured`:
+            https://mesosphere.github.io/marathon/docs/event-bus.html
+            #configuration
+        """
         existing_callbacks = yield self.get_marathon_event_callbacks()
         already_registered = any(
             [events_url == url for url in existing_callbacks])
@@ -104,6 +138,10 @@ class Consular(object):
             method, path, data, response.code))
         return response
 
+    def log_http_error(self, failure, url):
+        log.err(failure, 'Error performing request to %s' % (url,))
+        return failure
+
     def marathon_request(self, method, path, data=None):
         return self._request(
             method, '%s%s' % (self.marathon_endpoint, path), data)
@@ -122,8 +160,11 @@ class Consular(object):
             data=(json.dumps(data) if data is not None else None),
             pool=self.pool,
             timeout=timeout or self.timeout)
+
         if self.debug:
             d.addCallback(self.log_http_response, method, url, data)
+
+        d.addErrback(self.log_http_error, url)
         return d
 
     @app.route('/')
@@ -133,6 +174,12 @@ class Consular(object):
 
     @app.route('/events')
     def events(self, request):
+        """
+        Listens to incoming events from Marathon on ``/events``.
+
+        :param klein.app.KleinRequest request:
+            The Klein HTTP request
+        """
         request.setHeader('Content-Type', 'application/json')
         event = json.load(request.content)
         handler = self.event_dispatch.get(
@@ -140,6 +187,24 @@ class Consular(object):
         return handler(request, event)
 
     def handle_status_update_event(self, request, event):
+        """
+        Handles status updates from Marathon.
+
+        The various task stages are handled as follows:
+
+        TASK_STAGING: ignored
+        TASK_STARTING: ignored
+        TASK_RUNNING: task data updated on Consul
+        TASK_FINISHED: task data removed from Consul
+        TASK_FAILED: task data removed from Consul
+        TASK_KILLED: task data removed from Consul
+        TASK_LOST: task data removed from Consul
+
+        :param klein.app.KleinRequest request:
+            The Klein HTTP request
+        :param dict event:
+            The Marathon event
+        """
         dispatch = {
             'TASK_STAGING': self.noop,
             'TASK_STARTING': self.noop,
@@ -182,40 +247,76 @@ class Consular(object):
             'error': 'Event type %s not supported.' % (event_type,)
         })
 
+    def _registration_tag(self):
+        """
+        Get the Consul service tag used to mark a service as created by this
+        instance of Consular.
+        """
+        return 'consular-reg-id:%s' % (self.registration_id,)
+
+    def _create_service_registration(self, app_id, service_id, address, port):
+        """
+        Create the request body for registering a service with Consul.
+        """
+        registration = {
+            'Name': app_id,
+            'ID': service_id,
+            'Address': address,
+            'Port': port,
+            'Tags': [self._registration_tag()]
+        }
+        return registration
+
     def register_service(self, agent_endpoint,
                          app_id, service_id, address, port):
+        """
+        Register a task in Marathon as a service in Consul
+
+        :param str agent_endpoint:
+            The HTTP endpoint of where Consul on the Mesos worker machine
+            can be accessed.
+        :param str app_id:
+            Marathon's App-id for the task.
+        :param str service_id:
+            The service-id to register it as in Consul.
+        :param str address:
+            The host address of the machine the task is running on.
+        :param int port:
+            The port number the task can be accessed on on the host machine.
+        """
         log.msg('Registering %s at %s with %s at %s:%s.' % (
             app_id, agent_endpoint, service_id, address, port))
+        registration = self._create_service_registration(app_id, service_id,
+                                                         address, port)
+
         d = self.consul_request(
             'PUT',
             '%s/v1/agent/service/register' % (agent_endpoint,),
-            {
-                'Name': app_id,
-                'ID': service_id,
-                'Address': address,
-                'Port': port,
-            })
+            registration)
         if self.enable_fallback:
-            d.addErrback(
-                self.register_service_fallback, app_id, service_id,
-                address, port)
+            d.addErrback(self.register_service_fallback, registration)
         return d
 
-    def register_service_fallback(self, failure,
-                                  app_id, service_id, address, port):
-        log.msg('Falling back for %s at %s with %s at %s:%s.' % (
-            app_id, self.consul_endpoint, service_id, address, port))
+    def register_service_fallback(self, failure, registration):
+        log.msg('Falling back for %s at %s.' % (
+            registration['Name'], self.consul_endpoint))
         return self.consul_request(
             'PUT',
             '%s/v1/agent/service/register' % (self.consul_endpoint,),
-            {
-                'Name': app_id,
-                'ID': service_id,
-                'Address': address,
-                'Port': port,
-            })
+            registration)
 
     def deregister_service(self, agent_endpoint, app_id, service_id):
+        """
+        Deregister a service from Consul
+
+        :param str agent_endpoint:
+            The HTTP endpoint of where Consul on the Mesos worker machine
+            can be accessed.
+        :param str app_id:
+            Marathon's App-id for the task.
+        :param str service_id:
+            The service-id to register it as in Consul.
+        """
         log.msg('Deregistering %s at %s with %s' % (
             app_id, agent_endpoint, service_id,))
         return self.consul_request(
@@ -223,6 +324,17 @@ class Consular(object):
                 agent_endpoint, service_id,))
 
     def sync_apps(self, purge=False):
+        """
+        Ensure all the apps in Marathon are registered as services
+        in Consul.
+
+        Set ``purge`` to ``True`` if you automatically want services in Consul
+        that aren't registered in Marathon to be purged. Consular only purges
+        services that have been registered with the same ``registration-id``.
+
+        :param bool purge:
+            To purge or not to purge.
+        """
         d = self.marathon_request('GET', '/v2/apps')
         d.addCallback(lambda response: response.json())
         d.addCallback(
@@ -288,22 +400,32 @@ class Consular(object):
         # collect the task ids for the service name
         services = {}
         for service_id, service in data.items():
-            services.setdefault(service['Service'], set([])).add(service_id)
+            # Check the service for a tag that matches our registration ID
+            if self._is_registration_in_tags(service['Tags']):
+                services.setdefault(service['Service'], set([])).add(
+                    service_id)
 
         for app_id, task_ids in services.items():
             yield self.purge_service_if_dead(agent_endpoint, app_id, task_ids)
+
+    def _is_registration_in_tags(self, tags):
+        """
+        Check if the Consul service was tagged with our registration ID.
+        """
+        if not tags:
+            return False
+
+        return self._registration_tag() in tags
 
     @inlineCallbacks
     def purge_service_if_dead(self, agent_endpoint, app_id, consul_task_ids):
         response = yield self.marathon_request(
             'GET', '/v2/apps/%s/tasks' % (app_id,))
         data = yield response.json()
-        if 'tasks' not in data:
-            log.msg(('App %s does not look like a Marathon application, '
-                     'skipping') % (str(app_id),))
-            return
+        tasks_to_be_purged = set(consul_task_ids)
+        if 'tasks' in data:
+            marathon_task_ids = set([task['id'] for task in data['tasks']])
+            tasks_to_be_purged -= marathon_task_ids
 
-        marathon_task_ids = set([task['id'] for task in data['tasks']])
-        tasks_to_be_purged = consul_task_ids - marathon_task_ids
         for task_id in tasks_to_be_purged:
             yield self.deregister_service(agent_endpoint, app_id, task_id)
