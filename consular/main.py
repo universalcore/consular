@@ -403,8 +403,8 @@ class Consular(object):
                 ['%s => %s' % (name, ', '.join(ids),)
                  for name, ids in collisions.items()]))
             raise RuntimeError(
-                'The following Consul service name will resolve to multiple '
-                'Marathon app names: \n%s' % (collisions_string,))
+                'The following Consul service name(s) will resolve to '
+                'multiple Marathon app names: \n%s' % (collisions_string,))
 
         return apps
 

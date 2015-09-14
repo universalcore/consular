@@ -441,10 +441,10 @@ class ConsularTest(TestCase):
         exception = self.assertRaises(
             RuntimeError, self.consular.check_apps_namespace_clash, apps)
 
-        self.assertEqual('The following Consul service name will resolve to '
-                         'multiple Marathon app names: \nmy-group-my-subgroup-'
-                         'my-app => /my-group/my-subgroup/my-app, /my-group/my'
-                         '-subgroup-my-app, /my-group-my-subgroup-my-app',
+        self.assertEqual('The following Consul service name(s) will resolve '
+                         'to multiple Marathon app names: \nmy-group-my-subgro'
+                         'up-my-app => /my-group/my-subgroup/my-app, /my-group'
+                         '/my-subgroup-my-app, /my-group-my-subgroup-my-app',
                          str(exception))
 
     @inlineCallbacks
