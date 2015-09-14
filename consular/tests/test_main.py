@@ -85,6 +85,52 @@ class ConsularTest(TestCase):
     def tearDown(self):
         pass
 
+    def test_reg_id_tag(self):
+        """ Consular's registration ID tag is properly formed. """
+        self.assertEqual(self.consular.reg_id_tag(), 'consular-reg-id=test')
+
+    def test_app_id_tag(self):
+        """ Consular's application ID tag is properly formed. """
+        self.assertEqual(self.consular.app_id_tag('test'),
+                         'consular-app-id=test')
+
+    def test_get_app_id_from_tags(self):
+        """ The app ID is successfully parsed from the Consul tags. """
+        tags = [
+            'randomstuff',
+            'consular-reg-id=test',
+            'consular-app-id=/my-app',
+        ]
+        self.assertEqual(self.consular.get_app_id_from_tags(tags), '/my-app')
+
+    def test_get_app_id_from_tags_not_found(self):
+        """
+        None is returned when the app ID cannot be found in the Consul tags.
+        """
+        tags = [
+            'randomstuff',
+            'consular-reg-id=test',
+        ]
+        self.assertEqual(self.consular.get_app_id_from_tags(tags), None)
+
+    def test_get_app_id_from_tags_multiple(self):
+        """
+        An exception is raised when multiple app IDs are found in the Consul
+        tags.
+        """
+        tags = [
+            'randomstuff',
+            'consular-reg-id=test',
+            'consular-app-id=/my-app',
+            'consular-app-id=/my-app2',
+        ]
+        exception = self.assertRaises(RuntimeError,
+                                      self.consular.get_app_id_from_tags, tags)
+        self.assertEqual(str(exception),
+                         'Multiple (2) Consular tags found for key '
+                         '"consular-app-id=": [\'consular-app-id=/my-app\', '
+                         '\'consular-app-id=/my-app2\']')
+
     @inlineCallbacks
     def test_service(self):
         response = yield self.request('GET', '/')
@@ -174,7 +220,10 @@ class ConsularTest(TestCase):
             'ID': 'my-app_0-1396592784349',
             'Address': 'slave-1234.acme.org',
             'Port': 31372,
-            'Tags': ['consular-reg-id:test'],
+            'Tags': [
+                'consular-reg-id=test',
+                'consular-app-id=/my-app',
+            ],
         }))
         request['deferred'].callback(
             FakeResponse(200, [], json.dumps({})))
@@ -285,7 +334,38 @@ class ConsularTest(TestCase):
             'ID': 'my-task-id',
             'Address': '0.0.0.0',
             'Port': 1234,
-            'Tags': ['consular-reg-id:test'],
+            'Tags': [
+                'consular-reg-id=test',
+                'consular-app-id=/my-app',
+            ],
+        }))
+        self.assertEqual(consul_request['method'], 'PUT')
+        consul_request['deferred'].callback(
+            FakeResponse(200, [], json.dumps({})))
+        yield d
+
+    @inlineCallbacks
+    def test_sync_app_task_grouped(self):
+        """
+        When syncing an app in a group with a task, Consul is updated with a
+        service entry for the task.
+        """
+        app = {'id': '/my-group/my-app'}
+        task = {'id': 'my-task-id', 'host': '0.0.0.0', 'ports': [1234]}
+        d = self.consular.sync_app_task(app, task)
+        consul_request = yield self.requests.get()
+        self.assertEqual(
+            consul_request['url'],
+            'http://0.0.0.0:8500/v1/agent/service/register')
+        self.assertEqual(consul_request['data'], json.dumps({
+            'Name': 'my-group-my-app',
+            'ID': 'my-task-id',
+            'Address': '0.0.0.0',
+            'Port': 1234,
+            'Tags': [
+                'consular-reg-id=test',
+                'consular-app-id=/my-group/my-app',
+            ],
         }))
         self.assertEqual(consul_request['method'], 'PUT')
         consul_request['deferred'].callback(
@@ -356,21 +436,27 @@ class ConsularTest(TestCase):
         self.assertEqual(agent_request['method'], 'GET')
         agent_request['deferred'].callback(
             FakeResponse(200, [], json.dumps({
-                "testingapp.someid1": {
-                    "ID": "testingapp.someid1",
+                "testinggroup-someid1": {
+                    "ID": "taskid1",
                     "Service": "testingapp",
                     "Tags": None,
                     "Address": "machine-1",
                     "Port": 8102,
-                    'Tags': ['consular-reg-id:test'],
+                    "Tags": [
+                        "consular-reg-id=test",
+                        "consular-app-id=/testinggroup/someid1",
+                    ],
                 },
-                "testingapp.someid2": {
-                    "ID": "testingapp.someid2",
+                "testinggroup-someid1": {
+                    "ID": "taskid2",
                     "Service": "testingapp",
                     "Tags": None,
                     "Address": "machine-2",
                     "Port": 8103,
-                    'Tags': ['consular-reg-id:test'],
+                    "Tags": [
+                        "consular-reg-id=test",
+                        "consular-app-id=/testinggroup/someid1",
+                    ],
                 }
             }))
         )
@@ -379,13 +465,14 @@ class ConsularTest(TestCase):
         # 1 less than Consul thinks exists.
         testingapp_request = yield self.requests.get()
         self.assertEqual(testingapp_request['url'],
-                         'http://localhost:8080/v2/apps/testingapp/tasks')
+                         'http://localhost:8080/v2/apps/testinggroup/someid1/'
+                         'tasks')
         self.assertEqual(testingapp_request['method'], 'GET')
         testingapp_request['deferred'].callback(
             FakeResponse(200, [], json.dumps({
                 "tasks": [{
-                    "appId": "/testingapp",
-                    "id": "testingapp.someid2",
+                    "appId": "/testinggroup/someid1",
+                    "id": "taskid2",
                     "host": "machine-2",
                     "ports": [8103],
                     "startedAt": "2015-07-14T14:54:31.934Z",
@@ -401,7 +488,7 @@ class ConsularTest(TestCase):
         self.assertEqual(
             deregister_request['url'],
             ('http://1.2.3.4:8500/v1/agent/service/deregister/'
-             'testingapp.someid1'))
+             'testinggroup-someid1'))
         self.assertEqual(deregister_request['method'], 'PUT')
         deregister_request['deferred'].callback(
             FakeResponse(200, [], json.dumps({})))
@@ -438,7 +525,8 @@ class ConsularTest(TestCase):
                     "ID": "testingapp.someid1",
                     "Service": "testingapp",
                     "Tags": [
-                        "consular-reg-id:test"
+                        "consular-reg-id=test",
+                        "consular-app-id=/testingapp",
                     ],
                     "Address": "machine-1",
                     "Port": 8102
@@ -447,7 +535,8 @@ class ConsularTest(TestCase):
                     "ID": "testingapp.someid2",
                     "Service": "testingapp",
                     "Tags": [
-                        "consular-reg-id:blah"
+                        "consular-reg-id=blah",
+                        "consular-app-id=/testingapp",
                     ],
                     "Address": "machine-2",
                     "Port": 8103
@@ -484,10 +573,49 @@ class ConsularTest(TestCase):
         yield d
 
     @inlineCallbacks
+    def test_purge_old_service_no_app_id(self):
+        """
+        Services previously registered with Consul by Consular but without an
+        app ID tagged (for some reason) should not be purged.
+        """
+        d = self.consular.purge_dead_services()
+        consul_request = yield self.requests.get()
+        self.assertEqual(
+            consul_request['url'],
+            'http://localhost:8500/v1/catalog/nodes')
+        consul_request['deferred'].callback(
+            FakeResponse(200, [], json.dumps([{
+                'Node': 'consul-node',
+                'Address': '1.2.3.4',
+            }]))
+        )
+        agent_request = yield self.requests.get()
+        self.assertEqual(
+            agent_request['url'],
+            'http://1.2.3.4:8500/v1/agent/services')
+        self.assertEqual(agent_request['method'], 'GET')
+        agent_request['deferred'].callback(
+            FakeResponse(200, [], json.dumps({
+                "testingapp.someid1": {
+                    "ID": "testingapp.someid1",
+                    "Service": "testingapp",
+                    "Tags": [
+                        "consular-reg-id=test",
+                    ],
+                    "Address": "machine-1",
+                    "Port": 8102
+                }
+            }))
+        )
+
+        # Expecting no action to be taken as there is no app ID.
+        yield d
+
+    @inlineCallbacks
     def test_fallback_to_main_consul(self):
         self.consular.enable_fallback = True
         self.consular.register_service(
-            'http://foo:8500', 'app_id', 'service_id', 'foo', 1234)
+            'http://foo:8500', '/app_id', 'service_id', 'foo', 1234)
         request = yield self.requests.get()
         self.assertEqual(
             request['url'],
@@ -506,5 +634,8 @@ class ConsularTest(TestCase):
             'ID': 'service_id',
             'Address': 'foo',
             'Port': 1234,
-            'Tags': ['consular-reg-id:test'],
+            'Tags': [
+                'consular-reg-id=test',
+                'consular-app-id=/app_id',
+            ],
         }))
