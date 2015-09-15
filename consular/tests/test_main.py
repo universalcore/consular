@@ -200,7 +200,7 @@ class ConsularTest(TestCase):
         consul_kv_request = yield self.requests.get()
         self.assertEqual(consul_kv_request['method'], 'GET')
         self.assertEqual(consul_kv_request['url'],
-                         'http://localhost:8500/v1/kv/consular/my-app?keys')
+                         'http://localhost:8500/v1/kv/consular/my-app?keys=')
         consul_kv_request['deferred'].callback(
             FakeResponse(200, [], json.dumps([])))
 
@@ -398,7 +398,7 @@ class ConsularTest(TestCase):
         consul_request = yield self.requests.get()
         self.assertEqual(consul_request['method'], 'GET')
         self.assertEqual(consul_request['url'],
-                         'http://localhost:8500/v1/kv/consular/my-app?keys')
+                         'http://localhost:8500/v1/kv/consular/my-app?keys=')
         consul_request['deferred'].callback(
             FakeResponse(200, [], json.dumps([])))
 
@@ -427,7 +427,7 @@ class ConsularTest(TestCase):
         get_request = yield self.requests.get()
         self.assertEqual(get_request['method'], 'GET')
         self.assertEqual(get_request['url'],
-                         'http://localhost:8500/v1/kv/consular/my-app?keys')
+                         'http://localhost:8500/v1/kv/consular/my-app?keys=')
         consul_labels = [
             'consular/my-app/foo',
             'consular/my-app/oldfoo',
@@ -467,7 +467,7 @@ class ConsularTest(TestCase):
         self.assertEqual(consul_request['method'], 'GET')
         self.assertEqual(
             consul_request['url'],
-            'http://localhost:8500/v1/kv/consular/my-app?keys')
+            'http://localhost:8500/v1/kv/consular/my-app?keys=')
         consul_request['deferred'].callback(
             FakeResponse(200, [], json.dumps([])))
 
@@ -689,6 +689,40 @@ class ConsularTest(TestCase):
         )
 
         # Expecting no action to be taken as there is no app ID.
+        yield d
+
+    @inlineCallbacks
+    def test_purge_dead_app_labels(self):
+        """
+        Services previously registered with Consul by Consular but that no
+        longer exist in Marathon should have their labels removed from the k/v
+        store.
+        """
+        d = self.consular.purge_dead_app_labels([{
+            'id': 'my-app'
+        }])
+        consul_request = yield self.requests.get()
+        self.assertEqual(consul_request['method'], 'GET')
+        self.assertEqual(
+            consul_request['url'],
+            'http://localhost:8500/v1/kv/consular/?keys=&separator=%2F')
+        # Return one existing app and one non-existing app
+        consul_request['deferred'].callback(
+            FakeResponse(200, [], json.dumps([
+                'consular/my-app',
+                'consular/my-app2',
+            ]))
+        )
+
+        # Consular should delete the app that doesn't exist
+        consul_request = yield self.requests.get()
+        self.assertEqual(consul_request['method'], 'DELETE')
+        self.assertEqual(
+            consul_request['url'],
+            'http://localhost:8500/v1/kv/consular/my-app2?recurse')
+        consul_request['deferred'].callback(
+            FakeResponse(200, [], json.dumps({})))
+
         yield d
 
     @inlineCallbacks
