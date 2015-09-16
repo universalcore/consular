@@ -1,5 +1,7 @@
 import json
 
+from consular.clients import MarathonClient
+
 from urllib import quote, urlencode
 from twisted.internet import reactor
 from twisted.web import client, server
@@ -31,7 +33,7 @@ class ConsularSite(server.Site):
     debug = False
 
     def log(self, request):
-        if self.debug:
+        if self._debug:
             server.Site.log(self, request)
 
 
@@ -51,22 +53,34 @@ class Consular(object):
     """
 
     app = Klein()
-    debug = False
+    _debug = False
     clock = reactor
-    timeout = 5
+    _timeout = 5
     fallback_timeout = 2
-    requester = lambda self, *a, **kw: treq.request(*a, **kw)
+    _requester = lambda self, *a, **kw: treq.request(*a, **kw)
 
     def __init__(self, consul_endpoint, marathon_endpoint, enable_fallback,
                  registration_id):
         self.consul_endpoint = consul_endpoint
-        self.marathon_endpoint = marathon_endpoint
+        self.marathon_client = MarathonClient(marathon_endpoint)
         self.pool = client.HTTPConnectionPool(self.clock, persistent=False)
         self.enable_fallback = enable_fallback
         self.registration_id = registration_id
         self.event_dispatch = {
             'status_update_event': self.handle_status_update_event,
         }
+
+    def set_debug(self, debug):
+        self._debug = debug
+        self.marathon_client.debug = debug
+
+    def set_timeout(self, timeout):
+        self._timeout = timeout
+        self.marathon_client.timeout = timeout
+
+    def set_requester(self, requester):
+        self._requester = requester
+        self.marathon_client.requester = requester
 
     def run(self, host, port):
         """
@@ -78,36 +92,8 @@ class Consular(object):
             The port to listen on (example is ``7000``)
         """
         site = ConsularSite(self.app.resource())
-        site.debug = self.debug
+        site.debug = self._debug
         self.clock.listenTCP(port, site, interface=host)
-
-    def get_marathon_event_callbacks(self):
-        d = self.marathon_request('GET', '/v2/eventSubscriptions')
-        d.addErrback(log.err)
-        d.addCallback(lambda response: response.json())
-        d.addCallback(self.get_marathon_event_callbacks_from_json)
-        return d
-
-    def get_marathon_event_callbacks_from_json(self, json):
-        # NOTE:
-        # Marathon may return a bad response when we get the existing event
-        # callbacks. A common cause for this is that Marathon is not properly
-        # configured. Raise an exception with information from Marathon if this
-        # is the case, else return the callback URLs from the JSON response.
-        if 'callbackUrls' not in json:
-            raise RuntimeError('Unable to get existing event callbacks from ' +
-                               'Marathon: %r' % (str(json),))
-
-        return json['callbackUrls']
-
-    def create_marathon_event_callback(self, url):
-        d = self.marathon_request(
-            'POST', '/v2/eventSubscriptions?%s' % urlencode({
-                'callbackUrl': url,
-            }))
-        d.addErrback(log.err)
-        d.addCallback(lambda response: response.code == 200)
-        return d
 
     @inlineCallbacks
     def register_marathon_event_callback(self, events_url):
@@ -123,14 +109,16 @@ class Consular(object):
             https://mesosphere.github.io/marathon/docs/event-bus.html
             #configuration
         """
-        existing_callbacks = yield self.get_marathon_event_callbacks()
+        existing_callbacks = (
+            yield self.marathon_client.get_event_subscriptions())
         already_registered = any(
             [events_url == url for url in existing_callbacks])
         if already_registered:
             log.msg('Consular event callback already registered.')
             returnValue(True)
 
-        registered = yield self.create_marathon_event_callback(events_url)
+        registered = (
+            yield self.marathon_client.post_event_subscription(events_url))
         if registered:
             log.msg('Consular event callback registered.')
         else:
@@ -146,15 +134,11 @@ class Consular(object):
         log.err(failure, 'Error performing request to %s' % (url,))
         return failure
 
-    def marathon_request(self, method, path, data=None):
-        return self._request(
-            method, '%s%s' % (self.marathon_endpoint, path), data)
-
     def consul_request(self, method, url, data=None):
         return self._request(method, url, data, timeout=self.fallback_timeout)
 
     def _request(self, method, url, data, timeout=None):
-        d = self.requester(
+        d = self._requester(
             method,
             url.encode('utf-8'),
             headers={
@@ -163,9 +147,9 @@ class Consular(object):
             },
             data=(json.dumps(data) if data is not None else None),
             pool=self.pool,
-            timeout=timeout or self.timeout)
+            timeout=timeout or self._timeout)
 
-        if self.debug:
+        if self._debug:
             d.addCallback(self.log_http_response, method, url, data)
 
         d.addErrback(self.log_http_error, url)
@@ -229,7 +213,7 @@ class Consular(object):
     def update_task_running(self, request, event):
         # NOTE: Marathon sends a list of ports, I don't know yet when & if
         #       there are multiple values in that list.
-        d = self.get_app(event['appId'])
+        d = self.marathon_client.get_app(event['appId'])
         d.addCallback(lambda app: self.sync_app(app))
         d.addCallback(lambda _: json.dumps({'status': 'ok'}))
         return d
@@ -369,15 +353,9 @@ class Consular(object):
         :param bool purge:
             To purge or not to purge.
         """
-        d = self.get_marathon_apps()
+        d = self.marathon_client.get_apps()
         d.addCallback(self.check_apps_namespace_clash)
         return d.addCallback(self.sync_and_purge_apps, purge)
-
-    def get_marathon_apps(self):
-        """ Get a list of running apps from the Marathon API. """
-        d = self.marathon_request('GET', '/v2/apps')
-        d.addCallback(lambda response: response.json())
-        return d.addCallback(lambda data: data['apps'])
 
     def sync_and_purge_apps(self, apps, purge=False):
         deferreds = [gatherResults([self.sync_app(app) for app in apps])]
@@ -413,11 +391,6 @@ class Consular(object):
                 'multiple Marathon app names: \n%s' % (collisions_string,))
 
         return apps
-
-    def get_app(self, app_id):
-        d = self.marathon_request('GET', '/v2/apps%s' % (app_id,))
-        d = d.addCallback(lambda response: response.json())
-        return d.addCallback(lambda data: data['app'])
 
     def sync_app(self, app):
         return gatherResults([
@@ -535,10 +508,9 @@ class Consular(object):
         return consul_key.split('/', 2)[-1]
 
     def sync_app_tasks(self, app):
-        d = self.marathon_request('GET', '/v2/apps%(id)s/tasks' % app)
-        d.addCallback(lambda response: response.json())
-        return d.addCallback(lambda data: gatherResults(
-            self.sync_app_task(app, task) for task in data['tasks']))
+        d = self.marathon_client.get_app_tasks(app['id'])
+        return d.addCallback(lambda tasks: gatherResults(
+            self.sync_app_task(app, task) for task in tasks))
 
     def sync_app_task(self, app, task):
         return self.register_service(
@@ -613,22 +585,30 @@ class Consular(object):
                     log.msg('Service "%s" does not have an app ID in its '
                             'tags, it cannot be purged.'
                             % (service['Service'],))
-            elif self.debug:
+            elif self._debug:
                 log.msg('Service "%s" is not tagged with our registration ID, '
                         'not touching it.' % (service['Service'],))
 
         for app_id, task_ids in services.items():
             yield self.purge_service_if_dead(agent_endpoint, app_id, task_ids)
 
-    @inlineCallbacks
     def purge_service_if_dead(self, agent_endpoint, app_id, consul_task_ids):
-        response = yield self.marathon_request(
-            'GET', '/v2/apps%s/tasks' % (app_id,))
-        data = yield response.json()
-        tasks_to_be_purged = set(consul_task_ids)
-        if 'tasks' in data:
-            marathon_task_ids = set([task['id'] for task in data['tasks']])
-            tasks_to_be_purged -= marathon_task_ids
+        # Get the running tasks for the app (don't raise an error if the tasks
+        # are not found)
+        d = self.marathon_client.get_app_tasks(app_id, raise_error=False)
 
-        for task_id in tasks_to_be_purged:
-            yield self.deregister_service(agent_endpoint, app_id, task_id)
+        # Remove the running tasks from the set of Consul services
+        d.addCallback(self._filter_marathon_tasks, consul_task_ids)
+
+        # Deregister the remaining old services
+        return d.addCallback(lambda service_ids: gatherResults(
+            [self.deregister_service(agent_endpoint, app_id, service_id)
+             for service_id in service_ids]))
+
+    def _filter_marathon_tasks(self, marathon_tasks, consul_service_ids):
+        if not marathon_tasks:
+            return consul_service_ids
+
+        task_id_set = set([task['id'] for task in marathon_tasks])
+        return [service_id for service_id in consul_service_ids
+                if service_id not in task_id_set]

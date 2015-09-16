@@ -45,7 +45,7 @@ class ConsularTest(TestCase):
             False,
             'test'
         )
-        self.consular.debug = True
+        self.consular.set_debug(True)
 
         # spin up a site so we can test it, pretty sure Klein has better
         # ways of doing this but they're not documented anywhere.
@@ -71,7 +71,7 @@ class ConsularTest(TestCase):
             })
             return d
 
-        self.patch(self.consular, 'requester', mock_requests)
+        self.consular.set_requester(mock_requests)
 
     def request(self, method, path, data=None):
         return treq.request(
@@ -316,17 +316,17 @@ class ConsularTest(TestCase):
         list_callbacks_request['deferred'].callback(
             FakeResponse(400, [], json.dumps({
                 'message':
-                'http event callback system is not running on this Marathon ' +
-                'instance. Please re-start this instance with ' +
+                'http event callback system is not running on this Marathon '
+                'instance. Please re-start this instance with '
                 '"--event_subscriber http_callback".'})))
 
-        failure = self.failureResultOf(d, RuntimeError)
+        failure = self.failureResultOf(d, KeyError)
         self.assertEqual(
             failure.getErrorMessage(),
-            'Unable to get existing event callbacks from Marathon: ' +
-            '\'{u\\\'message\\\': u\\\'http event callback system is not ' +
-            'running on this Marathon instance. Please re-start this ' +
-            'instance with "--event_subscriber http_callback".\\\'}\'')
+            '\'Unable to get value for "callbackUrls" from Marathon response: '
+            '"{u\\\'message\\\': u\\\'http event callback system is not '
+            'running on this Marathon instance. Please re-start this instance '
+            'with "--event_subscriber http_callback".\\\'}"\'')
 
     @inlineCallbacks
     def test_sync_app_task(self):
