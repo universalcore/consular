@@ -1,4 +1,4 @@
-from urllib import urlencode
+from urllib import quote, urlencode
 import json
 
 from twisted.internet import reactor
@@ -102,3 +102,69 @@ class MarathonClient(JsonClient):
     def get_app_tasks(self, app_id, raise_error=True):
         return self._basic_get_request(
             '/v2/apps%s/tasks' % (app_id,), 'tasks', raise_error)
+
+
+class ConsulClient(JsonClient):
+
+    fallback_timeout = 2
+
+    def __init__(self, endpoint, enable_fallback=False):
+        super(ConsulClient, self).__init__()
+        self.endpoint = endpoint
+        self.enable_fallback = enable_fallback
+
+    def consul_request(self, method, url, data=None):
+        return self.request(method, url, data, timeout=self.fallback_timeout)
+
+    def consul_local_request(self, method, path, data=None):
+        return self.consul_request(
+            method, '%s%s' % (self.endpoint, path,), data)
+
+    def consul_agent_request(self, method, agent_endpoint, path, data=None):
+        return self.consul_request(
+            method, '%s%s' % (agent_endpoint, path,), data)
+
+    def register_agent_service(self, agent_endpoint, registration):
+        d = self.consul_agent_request(
+            'PUT', agent_endpoint, '/v1/agent/service/register', registration)
+
+        if self.enable_fallback:
+            d.addErrback(self.register_agent_service_fallback, registration)
+
+        return d
+
+    def register_agent_service_fallback(self, failure, registration):
+        log.msg('Falling back for %s at %s.' % (
+            registration['Name'], self.endpoint))
+        return self.consul_local_request(
+            'PUT', '/v1/agent/service/register', registration)
+
+    def deregister_agent_service(self, agent_endpoint, service_id):
+        return self.consul_agent_request(
+            'PUT', agent_endpoint, '/v1/agent/service/deregister/%s' % (
+                service_id,))
+
+    def put_kv(self, key, value):
+        return self.consul_local_request(
+            'PUT', '/v1/kv/%s' % (quote(key),), value)
+
+    def get_kv_keys(self, keys_path, separator=None):
+        params = {'keys': ''}
+        if separator:
+            params['separator'] = separator
+        d = self.consul_local_request('GET', '/v1/kv/%s?%s' % (
+            quote(keys_path), urlencode(params)))
+        return d.addCallback(JsonClient.response_json)
+
+    def delete_kv_keys(self, key, recurse=False):
+        return self.consul_local_request('DELETE', '/v1/kv/%s%s' % (
+            quote(key), '?recurse' if recurse else '',))
+
+    def get_catalog_nodes(self):
+        d = self.consul_local_request('GET', '/v1/catalog/nodes')
+        return d.addCallback(JsonClient.response_json)
+
+    def get_agent_services(self, agent_endpoint):
+        d = self.consul_agent_request(
+            'GET', agent_endpoint, '/v1/agent/services')
+        return d.addCallback(JsonClient.response_json)

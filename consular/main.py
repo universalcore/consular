@@ -1,18 +1,13 @@
 import json
 
-from consular.clients import MarathonClient
+from consular.clients import ConsulClient, MarathonClient
 
-from urllib import quote, urlencode
 from twisted.internet import reactor
-from twisted.web import client, server
-# Twisted's fault HTTP11 client factory is way too verbose
-client._HTTP11ClientFactory.noisy = False
+from twisted.web import server
 from twisted.internet.defer import (
     succeed, inlineCallbacks, returnValue, gatherResults)
 from twisted.python import log
 
-
-import treq
 from klein import Klein
 
 
@@ -55,16 +50,11 @@ class Consular(object):
     app = Klein()
     _debug = False
     clock = reactor
-    _timeout = 5
-    fallback_timeout = 2
-    _requester = lambda self, *a, **kw: treq.request(*a, **kw)
 
     def __init__(self, consul_endpoint, marathon_endpoint, enable_fallback,
                  registration_id):
-        self.consul_endpoint = consul_endpoint
+        self.consul_client = ConsulClient(consul_endpoint, enable_fallback)
         self.marathon_client = MarathonClient(marathon_endpoint)
-        self.pool = client.HTTPConnectionPool(self.clock, persistent=False)
-        self.enable_fallback = enable_fallback
         self.registration_id = registration_id
         self.event_dispatch = {
             'status_update_event': self.handle_status_update_event,
@@ -72,14 +62,15 @@ class Consular(object):
 
     def set_debug(self, debug):
         self._debug = debug
+        self.consul_client.debug = debug
         self.marathon_client.debug = debug
 
     def set_timeout(self, timeout):
-        self._timeout = timeout
+        self.consul_client.timeout = timeout
         self.marathon_client.timeout = timeout
 
     def set_requester(self, requester):
-        self._requester = requester
+        self.consul_client.requester = requester
         self.marathon_client.requester = requester
 
     def run(self, host, port):
@@ -124,36 +115,6 @@ class Consular(object):
         else:
             log.err('Consular event callback registration failed.')
         returnValue(registered)
-
-    def log_http_response(self, response, method, path, data):
-        log.msg('%s %s with %s returned: %s' % (
-            method, path, data, response.code))
-        return response
-
-    def log_http_error(self, failure, url):
-        log.err(failure, 'Error performing request to %s' % (url,))
-        return failure
-
-    def consul_request(self, method, url, data=None):
-        return self._request(method, url, data, timeout=self.fallback_timeout)
-
-    def _request(self, method, url, data, timeout=None):
-        d = self._requester(
-            method,
-            url.encode('utf-8'),
-            headers={
-                'Content-Type': 'application/json',
-                'Accept': 'application/json',
-            },
-            data=(json.dumps(data) if data is not None else None),
-            pool=self.pool,
-            timeout=timeout or self._timeout)
-
-        if self._debug:
-            d.addCallback(self.log_http_response, method, url, data)
-
-        d.addErrback(self.log_http_error, url)
-        return d
 
     @app.route('/')
     def index(self, request):
@@ -307,21 +268,8 @@ class Consular(object):
         registration = self._create_service_registration(app_id, service_id,
                                                          address, port)
 
-        d = self.consul_request(
-            'PUT',
-            '%s/v1/agent/service/register' % (agent_endpoint,),
-            registration)
-        if self.enable_fallback:
-            d.addErrback(self.register_service_fallback, registration)
-        return d
-
-    def register_service_fallback(self, failure, registration):
-        log.msg('Falling back for %s at %s.' % (
-            registration['Name'], self.consul_endpoint))
-        return self.consul_request(
-            'PUT',
-            '%s/v1/agent/service/register' % (self.consul_endpoint,),
-            registration)
+        return self.consul_client.register_agent_service(
+            agent_endpoint, registration)
 
     def deregister_service(self, agent_endpoint, app_id, service_id):
         """
@@ -337,9 +285,8 @@ class Consular(object):
         """
         log.msg('Deregistering %s at %s with %s' % (
             app_id, agent_endpoint, service_id,))
-        return self.consul_request(
-            'PUT', '%s/v1/agent/service/deregister/%s' % (
-                agent_endpoint, service_id,))
+        return self.consul_client.deregister_agent_service(
+            agent_endpoint, service_id)
 
     def sync_apps(self, purge=False):
         """
@@ -432,13 +379,8 @@ class Consular(object):
 
     def put_consul_kvs(self, key_values):
         """ Store the given key/value set in the Consul k/v store. """
-        return gatherResults([self.put_consul_kv(key, value)
+        return gatherResults([self.consul_client.put_kv(key, value)
                               for key, value in key_values.items()])
-
-    def put_consul_kv(self, key, value):
-        """ Store the given value at the given key in the Consul k/v store. """
-        return self.consul_request('PUT', '%s/v1/kv/%s' % (
-            self.consul_endpoint, quote(key),), value)
 
     def clean_consul_app_labels(self, app_name, labels):
         """
@@ -456,34 +398,19 @@ class Consular(object):
 
     def get_consul_app_keys(self, app_name):
         """ Get the Consul k/v keys for the app with the given name. """
-        return self.get_consul_kv_keys('consular/%s' % (app_name,))
+        return self.consul_client.get_kv_keys('consular/%s' % (app_name,))
 
     def get_consul_consular_keys(self):
         """
         Get the next level of Consul k/v keys at 'consular/', i.e. will
         return 'consular/my-app' but not 'consular/my-app/my-label'.
         """
-        return self.get_consul_kv_keys('consular/', separator='/')
-
-    def get_consul_kv_keys(self, key_path, separator=None):
-        """ Get the Consul k/v keys present at the given key path. """
-        params = {'keys': ''}
-        if separator:
-            params['separator'] = separator
-        d = self.consul_request('GET', '%s/v1/kv/%s?%s' % (
-            self.consul_endpoint, quote(key_path), urlencode(params)))
-        return d.addCallback(lambda response: response.json())
+        return self.consul_client.get_kv_keys('consular/', separator='/')
 
     def delete_consul_kv_keys(self, keys, recurse=False):
         """ Delete a sequence of Consul k/v keys. """
-        return gatherResults([self.delete_consul_kv_key(key, recurse)
+        return gatherResults([self.consul_client.delete_kv_keys(key, recurse)
                               for key in keys])
-
-    def delete_consul_kv_key(self, key, recurse=False):
-        """ Delete the Consul k/v entry associated with the given key. """
-        return self.consul_request('DELETE', '%s/v1/kv/%s%s' % (
-            self.consul_endpoint, quote(key),
-            '?recurse' if recurse else '',))
 
     def _filter_marathon_labels(self, consul_keys, marathon_labels):
         """
@@ -557,20 +484,15 @@ class Consular(object):
         return consul_key.split('/', 1)[-1]
 
     def purge_dead_services(self):
-        d = self.consul_request(
-            'GET', '%s/v1/catalog/nodes' % (self.consul_endpoint,))
-        d.addCallback(lambda response: response.json())
-        d.addCallback(lambda data: gatherResults([
+        d = self.consul_client.get_catalog_nodes()
+        return d.addCallback(lambda data: gatherResults([
             self.purge_dead_agent_services(
                 get_agent_endpoint(node['Address'])) for node in data
         ]))
-        return d
 
     @inlineCallbacks
     def purge_dead_agent_services(self, agent_endpoint):
-        response = yield self.consul_request(
-            'GET', '%s/v1/agent/services' % (agent_endpoint,))
-        data = yield response.json()
+        data = yield self.consul_client.get_agent_services(agent_endpoint)
 
         # collect the task ids for the service name
         services = {}
