@@ -196,6 +196,14 @@ class ConsularTest(TestCase):
                 }
             })))
 
+        # Check if any existing labels stored in Consul
+        consul_kv_request = yield self.requests.get()
+        self.assertEqual(consul_kv_request['method'], 'GET')
+        self.assertEqual(consul_kv_request['url'],
+                         'http://localhost:8500/v1/kv/consular/my-app?keys=')
+        consul_kv_request['deferred'].callback(
+            FakeResponse(200, [], json.dumps([])))
+
         # Then we collect the tasks for the app
         marathon_tasks_request = yield self.requests.get()
         self.assertEqual(marathon_tasks_request['method'], 'GET')
@@ -386,6 +394,63 @@ class ConsularTest(TestCase):
         self.assertEqual(consul_request['data'], '"bar"')
         consul_request['deferred'].callback(
             FakeResponse(200, [], json.dumps({})))
+
+        consul_request = yield self.requests.get()
+        self.assertEqual(consul_request['method'], 'GET')
+        self.assertEqual(consul_request['url'],
+                         'http://localhost:8500/v1/kv/consular/my-app?keys=')
+        consul_request['deferred'].callback(
+            FakeResponse(200, [], json.dumps([])))
+
+        yield d
+
+    @inlineCallbacks
+    def test_sync_app_labels_cleanup(self):
+        """
+        When Consular syncs app labels, and labels are found in Consul which
+        aren't present in the Marathon app definition, those labels are deleted
+        from Consul.
+        """
+        app = {
+            'id': '/my-app',
+            'labels': {'foo': 'bar'}
+        }
+        d = self.consular.sync_app_labels(app)
+        put_request = yield self.requests.get()
+        self.assertEqual(put_request['method'], 'PUT')
+        self.assertEqual(put_request['url'],
+                         'http://localhost:8500/v1/kv/consular/my-app/foo')
+        self.assertEqual(put_request['data'], '"bar"')
+        put_request['deferred'].callback(
+            FakeResponse(200, [], json.dumps({})))
+
+        get_request = yield self.requests.get()
+        self.assertEqual(get_request['method'], 'GET')
+        self.assertEqual(get_request['url'],
+                         'http://localhost:8500/v1/kv/consular/my-app?keys=')
+        consul_labels = [
+            'consular/my-app/foo',
+            'consular/my-app/oldfoo',
+            'consular/my-app/misplaced/foo',
+        ]
+        get_request['deferred'].callback(
+            FakeResponse(200, [], json.dumps(consul_labels)))
+
+        delete_request1 = yield self.requests.get()
+        self.assertEqual(delete_request1['method'], 'DELETE')
+        self.assertEqual(delete_request1['url'],
+                         'http://localhost:8500/v1/kv/consular/my-app/oldfoo')
+        delete_request1['deferred'].callback(
+            FakeResponse(200, [], json.dumps(True)))
+
+        delete_request2 = yield self.requests.get()
+        self.assertEqual(delete_request2['method'], 'DELETE')
+        self.assertEqual(
+            delete_request2['url'],
+            'http://localhost:8500/v1/kv/consular/my-app/misplaced/foo')
+        delete_request2['deferred'].callback(
+            FakeResponse(200, [], json.dumps(True)))
+
         yield d
 
     @inlineCallbacks
@@ -394,6 +459,21 @@ class ConsularTest(TestCase):
             'id': '/my-app',
         }
         d = self.consular.sync_app(app)
+
+        # First Consular syncs app labels...
+        # There are no labels in this definition so Consular doesn't push any
+        # labels to Consul, it just tries to clean up any existing labels.
+        consul_request = yield self.requests.get()
+        self.assertEqual(consul_request['method'], 'GET')
+        self.assertEqual(
+            consul_request['url'],
+            'http://localhost:8500/v1/kv/consular/my-app?keys=')
+        consul_request['deferred'].callback(
+            FakeResponse(200, [], json.dumps([])))
+
+        # Next Consular syncs app tasks...
+        # It fetches a list of tasks for an app and gets an empty list so
+        # nothing is to be done.
         marathon_request = yield self.requests.get()
         self.assertEqual(
             marathon_request['url'],
@@ -642,6 +722,40 @@ class ConsularTest(TestCase):
         )
 
         # Expecting no action to be taken as there is no app ID.
+        yield d
+
+    @inlineCallbacks
+    def test_purge_dead_app_labels(self):
+        """
+        Services previously registered with Consul by Consular but that no
+        longer exist in Marathon should have their labels removed from the k/v
+        store.
+        """
+        d = self.consular.purge_dead_app_labels([{
+            'id': 'my-app'
+        }])
+        consul_request = yield self.requests.get()
+        self.assertEqual(consul_request['method'], 'GET')
+        self.assertEqual(
+            consul_request['url'],
+            'http://localhost:8500/v1/kv/consular/?keys=&separator=%2F')
+        # Return one existing app and one non-existing app
+        consul_request['deferred'].callback(
+            FakeResponse(200, [], json.dumps([
+                'consular/my-app',
+                'consular/my-app2',
+            ]))
+        )
+
+        # Consular should delete the app that doesn't exist
+        consul_request = yield self.requests.get()
+        self.assertEqual(consul_request['method'], 'DELETE')
+        self.assertEqual(
+            consul_request['url'],
+            'http://localhost:8500/v1/kv/consular/my-app2?recurse')
+        consul_request['deferred'].callback(
+            FakeResponse(200, [], json.dumps({})))
+
         yield d
 
     @inlineCallbacks
