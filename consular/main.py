@@ -371,12 +371,42 @@ class Consular(object):
         """
         d = self.marathon_request('GET', '/v2/apps')
         d.addCallback(lambda response: response.json())
+        d.addCallback(lambda response_json: response_json['apps'])
+        d.addCallback(self.check_apps_namespace_clash)
         d.addCallback(
-            lambda data: gatherResults(
-                [self.sync_app(app) for app in data['apps']]))
+            lambda apps: gatherResults([self.sync_app(app) for app in apps]))
         if purge:
             d.addCallback(lambda _: self.purge_dead_services())
         return d
+
+    def check_apps_namespace_clash(self, apps):
+        """
+        Checks if app names in Marathon will cause a namespace clash in Consul.
+        Throws an exception if there is a collision, else returns the apps.
+
+        :param: apps:
+            The JSON list of apps from Marathon's API.
+        """
+        # Collect the app name to app id(s) mapping.
+        name_ids = {}
+        for app in apps:
+            app_id = app['id']
+            app_name = get_app_name(app_id)
+            name_ids.setdefault(app_name, []).append(app_id)
+
+        # Check if any app names map to more than one app id.
+        collisions = {name: ids
+                      for name, ids in name_ids.items() if len(ids) > 1}
+
+        if collisions:
+            collisions_string = '\n'.join(sorted(
+                ['%s => %s' % (name, ', '.join(ids),)
+                 for name, ids in collisions.items()]))
+            raise RuntimeError(
+                'The following Consul service name(s) will resolve to '
+                'multiple Marathon app names: \n%s' % (collisions_string,))
+
+        return apps
 
     def get_app(self, app_id):
         d = self.marathon_request('GET', '/v2/apps%s' % (app_id,))
