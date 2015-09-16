@@ -494,6 +494,39 @@ class ConsularTest(TestCase):
             FakeResponse(200, [], json.dumps({'apps': []})))
         yield d
 
+    def test_check_apps_namespace_clash_no_clash(self):
+        """
+        When checking for app namespace clashes and there are no clashes, the
+        list of apps is returned.
+        """
+        apps = [
+            {'id': '/my-group/my-app'},
+            {'id': '/my-app'},
+            {'id': '/my-group/my-app2'},
+        ]
+        apps_returned = self.consular.check_apps_namespace_clash(apps)
+        self.assertEqual(apps, apps_returned)
+
+    def test_check_apps_namespace_clash_clashing(self):
+        """
+        When checking for app namespace clashes and there are clashes, an
+        error is raised with an error message describing the clashes.
+        """
+        apps = [
+            {'id': '/my-group/my-subgroup/my-app'},
+            {'id': '/my-group/my-subgroup-my-app'},
+            {'id': '/my-group-my-subgroup-my-app'},
+            {'id': '/my-app'},
+        ]
+        exception = self.assertRaises(
+            RuntimeError, self.consular.check_apps_namespace_clash, apps)
+
+        self.assertEqual('The following Consul service name(s) will resolve '
+                         'to multiple Marathon app names: \nmy-group-my-subgro'
+                         'up-my-app => /my-group/my-subgroup/my-app, /my-group'
+                         '/my-subgroup-my-app, /my-group-my-subgroup-my-app',
+                         str(exception))
+
     @inlineCallbacks
     def test_purge_dead_services(self):
         d = self.consular.purge_dead_services()
