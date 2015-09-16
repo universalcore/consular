@@ -29,7 +29,7 @@ class JsonClient(object):
         log.err(failure, 'Error performing request to %s' % (url,))
         return failure
 
-    def request(self, method, url, data, timeout=None):
+    def request(self, method, url, data=None, timeout=None):
         d = self.requester(
             method,
             url.encode('utf-8'),
@@ -111,20 +111,19 @@ class ConsulClient(JsonClient):
         self.endpoint = endpoint
         self.enable_fallback = enable_fallback
 
-    def consul_request(self, method, url, data=None):
-        return self.request(method, url, data, timeout=self.fallback_timeout)
+    def consul_request(self, method, path, endpoint=None, data=None,
+                       timeout=None):
+        if not endpoint:
+            endpoint = self.endpoint
+        if not timeout:
+            timeout = self.timeout
 
-    def consul_local_request(self, method, path, data=None):
-        return self.consul_request(
-            method, '%s%s' % (self.endpoint, path,), data)
-
-    def consul_agent_request(self, method, agent_endpoint, path, data=None):
-        return self.consul_request(
-            method, '%s%s' % (agent_endpoint, path,), data)
+        return self.request(
+            method, '%s%s' % (endpoint, path,), data=data, timeout=timeout)
 
     def register_agent_service(self, agent_endpoint, registration):
-        d = self.consul_agent_request(
-            'PUT', agent_endpoint, '/v1/agent/service/register', registration)
+        d = self.consul_request('PUT', '/v1/agent/service/register',
+                                endpoint=agent_endpoint, data=registration)
 
         if self.enable_fallback:
             d.addErrback(self.register_agent_service_fallback, registration)
@@ -134,35 +133,35 @@ class ConsulClient(JsonClient):
     def register_agent_service_fallback(self, failure, registration):
         log.msg('Falling back for %s at %s.' % (
             registration['Name'], self.endpoint))
-        return self.consul_local_request(
-            'PUT', '/v1/agent/service/register', registration)
+        return self.consul_request(
+            'PUT', '/v1/agent/service/register',  data=registration,
+            timeout=self.fallback_timeout)
 
     def deregister_agent_service(self, agent_endpoint, service_id):
-        return self.consul_agent_request(
-            'PUT', agent_endpoint, '/v1/agent/service/deregister/%s' % (
-                service_id,))
+        return self.consul_request('PUT', '/v1/agent/service/deregister/%s' % (
+            service_id,), endpoint=agent_endpoint)
 
     def put_kv(self, key, value):
-        return self.consul_local_request(
-            'PUT', '/v1/kv/%s' % (quote(key),), value)
+        return self.consul_request(
+            'PUT', '/v1/kv/%s' % (quote(key),), data=value)
 
     def get_kv_keys(self, keys_path, separator=None):
         params = {'keys': ''}
         if separator:
             params['separator'] = separator
-        d = self.consul_local_request('GET', '/v1/kv/%s?%s' % (
+        d = self.consul_request('GET', '/v1/kv/%s?%s' % (
             quote(keys_path), urlencode(params)))
         return d.addCallback(JsonClient.response_json)
 
     def delete_kv_keys(self, key, recurse=False):
-        return self.consul_local_request('DELETE', '/v1/kv/%s%s' % (
+        return self.consul_request('DELETE', '/v1/kv/%s%s' % (
             quote(key), '?recurse' if recurse else '',))
 
     def get_catalog_nodes(self):
-        d = self.consul_local_request('GET', '/v1/catalog/nodes')
+        d = self.consul_request('GET', '/v1/catalog/nodes')
         return d.addCallback(JsonClient.response_json)
 
     def get_agent_services(self, agent_endpoint):
-        d = self.consul_agent_request(
-            'GET', agent_endpoint, '/v1/agent/services')
+        d = self.consul_request(
+            'GET', '/v1/agent/services', endpoint=agent_endpoint)
         return d.addCallback(JsonClient.response_json)
