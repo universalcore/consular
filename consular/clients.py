@@ -66,7 +66,6 @@ class MarathonClient(JsonClient):
 
     def _basic_get_request(self, path, field, raise_error=True):
         d = self.marathon_request('GET', path)
-        d.addErrback(log.err)
         d.addCallback(JsonClient.response_json)
         return d.addCallback(self._get_json_field, field, raise_error)
 
@@ -90,7 +89,6 @@ class MarathonClient(JsonClient):
             'POST', '/v2/eventSubscriptions?%s' % urlencode({
                 'callbackUrl': callback_url,
             }))
-        d.addErrback(log.err)
         return d.addCallback(JsonClient.response_ok)
 
     def get_apps(self):
