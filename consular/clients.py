@@ -18,6 +18,9 @@ class JsonClient(object):
     requester = lambda self, *a, **kw: treq.request(*a, **kw)
 
     def __init__(self, endpoint):
+        """
+        Create a client with the specified default endpoint.
+        """
         self.endpoint = endpoint
         self.pool = client.HTTPConnectionPool(self.clock, persistent=False)
 
@@ -83,10 +86,29 @@ class JsonClient(object):
 class MarathonClient(JsonClient):
 
     def _basic_get_request(self, path, field, raise_error=True):
+        """
+        Perform a GET request and get the contents of the JSON response.
+
+        Marathon's JSON responses tend to contain an object with a single key
+        which points to the actual data of the response. For example /v2/apps
+        returns something like {"apps": [ {"app1"}, {"app2"} ]}. We're
+        interested in the contents of "apps".
+        """
         d = self.get_json(path)
         return d.addCallback(self._get_json_field, field, raise_error)
 
     def _get_json_field(self, response_json, field_name, raise_error=True):
+        """
+        Get a JSON field from the response JSON.
+
+        :param: response_json:
+            The parsed JSON content of the response.
+        :param: field_name:
+            The name of the field in the JSON to get.
+        :param: raise_error:
+            If True, an error will be raised if the field is not present in
+            the response JSON. If False, None is returned.
+        """
         if field_name not in response_json:
             if raise_error:
                 raise KeyError('Unable to get value for "%s" from Marathon '
@@ -98,10 +120,17 @@ class MarathonClient(JsonClient):
         return response_json[field_name]
 
     def get_event_subscriptions(self):
+        """
+        Get the current Marathon event subscriptions, returning a list of
+        callback URLs.
+        """
         return self._basic_get_request(
             '/v2/eventSubscriptions', 'callbackUrls')
 
     def post_event_subscription(self, callback_url):
+        """
+        Post a new Marathon event subscription with the given callback URL.
+        """
         d = self.request(
             'POST', '/v2/eventSubscriptions?%s' % urlencode({
                 'callbackUrl': callback_url,
@@ -109,12 +138,23 @@ class MarathonClient(JsonClient):
         return d.addCallback(lambda response: response.code == 200)
 
     def get_apps(self):
+        """
+        Get the currently running Marathon apps, returning a list of app
+        definitions.
+        """
         return self._basic_get_request('/v2/apps', 'apps')
 
     def get_app(self, app_id):
+        """
+        Get information about the app with the given app ID.
+        """
         return self._basic_get_request('/v2/apps%s' % (app_id,), 'app')
 
     def get_app_tasks(self, app_id, raise_error=True):
+        """
+        Get the currently running tasks for the app with the given app ID,
+        returning a list of task definitions.
+        """
         return self._basic_get_request(
             '/v2/apps%s/tasks' % (app_id,), 'tasks', raise_error)
 
@@ -124,11 +164,24 @@ class ConsulClient(JsonClient):
     fallback_timeout = 2
 
     def __init__(self, endpoint, enable_fallback=False):
+        """
+        Create a Consul client.
+
+        :param: endpoint:
+            The default Consul endpoint, usually on the same node as Consular
+            is running.
+        :param: enable_fallback:
+            Fall back to the default Consul endpoint when registering services
+            on an agent that cannot be reached.
+        """
         super(ConsulClient, self).__init__(endpoint)
         self.endpoint = endpoint
         self.enable_fallback = enable_fallback
 
     def register_agent_service(self, agent_endpoint, registration):
+        """
+        Register a Consul service at the given agent endpoint.
+        """
         d = self.request('PUT', '/v1/agent/service/register',
                          endpoint=agent_endpoint, json_data=registration)
 
@@ -138,6 +191,10 @@ class ConsulClient(JsonClient):
         return d
 
     def register_agent_service_fallback(self, failure, registration):
+        """
+        Fallback to the default agent endpoint (`self.endpoint`) to register
+        a Consul service.
+        """
         log.msg('Falling back for %s at %s.' % (
             registration['Name'], self.endpoint))
         return self.request(
@@ -145,14 +202,30 @@ class ConsulClient(JsonClient):
             timeout=self.fallback_timeout)
 
     def deregister_agent_service(self, agent_endpoint, service_id):
+        """
+        Deregister a Consul service at the given agent endpoint.
+        """
         return self.request('PUT', '/v1/agent/service/deregister/%s' % (
             service_id,), endpoint=agent_endpoint)
 
     def put_kv(self, key, value):
+        """
+        Put a key/value in Consul's k/v store.
+        """
         return self.request(
             'PUT', '/v1/kv/%s' % (quote(key),), json_data=value)
 
     def get_kv_keys(self, keys_path, separator=None):
+        """
+        Get the stored keys for the given keys path from the Consul k/v store.
+
+        :param: keys_path:
+            The path to some keys (example is `consular/my-app/`).
+        :param: separator:
+            Get all the keys up to some separator in the key path. Useful for
+            getting all the keys non-recursively for a path. For more
+            information see the Consul API documentation.
+        """
         params = {'keys': ''}
         if separator:
             params['separator'] = separator
@@ -160,11 +233,25 @@ class ConsulClient(JsonClient):
                                                urlencode(params)))
 
     def delete_kv_keys(self, key, recurse=False):
+        """
+        Delete the store key(s) at the given path from the Consul k/v store.
+
+        :param: key:
+            The key or key path to be deleted.
+        :param: recurse:
+            Whether or not to recursively delete all subpaths of the key.
+        """
         return self.request('DELETE', '/v1/kv/%s%s' % (
             quote(key), '?recurse' if recurse else '',))
 
     def get_catalog_nodes(self):
+        """
+        Get the list of active Consul nodes from the catalog.
+        """
         return self.get_json('/v1/catalog/nodes')
 
     def get_agent_services(self, agent_endpoint):
+        """
+        Get the list of running services for the given agent endpoint.
+        """
         return self.get_json('/v1/agent/services', endpoint=agent_endpoint)
