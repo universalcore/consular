@@ -61,12 +61,12 @@ class ConsularTest(TestCase):
         # We use this to mock requests going to Consul & Marathon
         self.requests = DeferredQueue()
 
-        def mock_requests(method, url, headers, data, pool, timeout):
+        def mock_requests(method, url, **kwargs):
             d = Deferred()
             self.requests.put({
                 'method': method,
                 'url': url,
-                'data': data,
+                'data': kwargs.get('data'),
                 'deferred': d,
             })
             return d
