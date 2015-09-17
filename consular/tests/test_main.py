@@ -454,6 +454,33 @@ class ConsularTest(TestCase):
         yield d
 
     @inlineCallbacks
+    def test_sync_app_labels_cleanup_not_found(self):
+        """
+        When Consular syncs app labels, and labels aren't found in Consul and
+        Consul returns a 404, we should fail gracefully.
+        """
+        app = {
+            'id': '/my-app',
+            'labels': {'foo': 'bar'}
+        }
+        d = self.consular.sync_app_labels(app)
+        put_request = yield self.requests.get()
+        self.assertEqual(put_request['method'], 'PUT')
+        self.assertEqual(put_request['url'],
+                         'http://localhost:8500/v1/kv/consular/my-app/foo')
+        self.assertEqual(put_request['data'], '"bar"')
+        put_request['deferred'].callback(
+            FakeResponse(200, [], json.dumps({})))
+
+        get_request = yield self.requests.get()
+        self.assertEqual(get_request['method'], 'GET')
+        self.assertEqual(get_request['url'],
+                         'http://localhost:8500/v1/kv/consular/my-app?keys=')
+        get_request['deferred'].callback(FakeResponse(404, [], None))
+
+        yield d
+
+    @inlineCallbacks
     def test_sync_app(self):
         app = {
             'id': '/my-app',
@@ -756,6 +783,26 @@ class ConsularTest(TestCase):
         consul_request['deferred'].callback(
             FakeResponse(200, [], json.dumps({})))
 
+        yield d
+
+    @inlineCallbacks
+    def test_purge_dead_app_labels_not_found(self):
+        """
+        When purging labels from the Consul k/v store, if Consul can't find
+        a key and returns 404, we should fail gracefully.
+        """
+        d = self.consular.purge_dead_app_labels([{
+            'id': 'my-app'
+        }])
+        consul_request = yield self.requests.get()
+        self.assertEqual(consul_request['method'], 'GET')
+        self.assertEqual(
+            consul_request['url'],
+            'http://localhost:8500/v1/kv/consular/?keys=&separator=%2F')
+        # Return one existing app and one non-existing app
+        consul_request['deferred'].callback(FakeResponse(404, [], None))
+
+        # No keys exist in Consul so nothing to purge
         yield d
 
     @inlineCallbacks
