@@ -229,8 +229,27 @@ class ConsulClient(JsonClient):
         params = {'keys': ''}
         if separator:
             params['separator'] = separator
-        return self.get_json('/v1/kv/%s?%s' % (quote(keys_path),
-                                               urlencode(params)))
+        d = self.request('GET', '/v1/kv/%s?%s' % (quote(keys_path),
+                                                  urlencode(params)))
+        return d.addCallback(self._get_kv_keys_from_response, keys_path)
+
+    def _get_kv_keys_from_response(self, response, keys_path):
+        """
+        Get the list of keys from a Consul k/v store response. If the keys were
+        not found (Consul returned a 404), return an empty list.
+        """
+        if response.code == 200:
+            return response.json()
+        elif response.code == 404:
+            if self.debug:
+                log.msg(
+                    'Consul returned a 404 when getting the keys for %s' % (
+                        keys_path,))
+            return []
+        else:
+            raise RuntimeError('Unexpected response from Consul when getting '
+                               'keys for "%s", status code = %s' % (
+                                   keys_path, response.code,))
 
     def delete_kv_keys(self, key, recurse=False):
         """
