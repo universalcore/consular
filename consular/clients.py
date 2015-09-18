@@ -4,6 +4,7 @@ import json
 from twisted.internet import reactor
 from twisted.python import log
 from twisted.web import client
+from twisted.web.http import OK
 
 # Twisted's default HTTP11 client factory is way too verbose
 client._HTTP11ClientFactory.noisy = False
@@ -80,12 +81,48 @@ class JsonClient(object):
         Perform a GET request to the given path and return the JSON response.
         """
         d = self.request('GET', path, **kwargs)
-        return d.addCallback(lambda response: response.json())
+        return d.addCallback(self._response_json_if_ok)
+
+    def _response_json_if_ok(self, response):
+        """
+        Get the response JSON content if the respones code is OK (200), else
+        raise an `UnexpectedResponseError`.
+        """
+        if response.code == OK:
+            return response.json()
+        else:
+            d = response.content()
+            d.addCallback(self._raise_unexpected_response_error, response)
+            return d
+
+    def _raise_unexpected_response_error(self, response_content, response):
+        raise UnexpectedResponseError(response, response_content)
+
+
+class UnexpectedResponseError(Exception):
+    """
+    Error raised for a non-200 response code.
+    """
+    def __init__(self, response, response_content, message=None):
+        if not message:
+            message = self._default_error_message(response, response_content)
+
+        super(UnexpectedResponseError, self).__init__(message)
+        self.response = response
+
+    def _default_error_message(self, response, response_content):
+        # Due to current testing method we can't get the Twisted Request object
+        # from the response and add extra useful fields to the error message.
+
+        # request = response.request
+        return 'response: code=%d, body=%s \nrequest: method=, url=, body=' % (
+            response.code, response_content,)
+        # request.method, request.url, request.data))
 
 
 class MarathonClient(JsonClient):
 
-    def _basic_get_request(self, path, field, raise_error=True):
+    def _basic_get_request(self, path, field):
         """
         Perform a GET request and get the contents of the JSON response.
 
@@ -94,10 +131,9 @@ class MarathonClient(JsonClient):
         returns something like {"apps": [ {"app1"}, {"app2"} ]}. We're
         interested in the contents of "apps".
         """
-        d = self.get_json(path)
-        return d.addCallback(self._get_json_field, field, raise_error)
+        return self.get_json(path).addCallback(self._get_json_field, field)
 
-    def _get_json_field(self, response_json, field_name, raise_error=True):
+    def _get_json_field(self, response_json, field_name):
         """
         Get a JSON field from the response JSON.
 
@@ -105,17 +141,11 @@ class MarathonClient(JsonClient):
             The parsed JSON content of the response.
         :param: field_name:
             The name of the field in the JSON to get.
-        :param: raise_error:
-            If True, an error will be raised if the field is not present in
-            the response JSON. If False, None is returned.
         """
         if field_name not in response_json:
-            if raise_error:
-                raise KeyError('Unable to get value for "%s" from Marathon '
-                               'response: "%s"' % (
-                                   field_name, str(response_json),))
-            else:
-                return None
+            raise KeyError('Unable to get value for "%s" from Marathon '
+                           'response: "%s"' % (
+                               field_name, json.dumps(response_json),))
 
         return response_json[field_name]
 
@@ -135,7 +165,7 @@ class MarathonClient(JsonClient):
             'POST', '/v2/eventSubscriptions?%s' % urlencode({
                 'callbackUrl': callback_url,
             }))
-        return d.addCallback(lambda response: response.code == 200)
+        return d.addCallback(lambda response: response.code == OK)
 
     def get_apps(self):
         """
@@ -150,13 +180,12 @@ class MarathonClient(JsonClient):
         """
         return self._basic_get_request('/v2/apps%s' % (app_id,), 'app')
 
-    def get_app_tasks(self, app_id, raise_error=True):
+    def get_app_tasks(self, app_id):
         """
         Get the currently running tasks for the app with the given app ID,
         returning a list of task definitions.
         """
-        return self._basic_get_request(
-            '/v2/apps%s/tasks' % (app_id,), 'tasks', raise_error)
+        return self._basic_get_request('/v2/apps%s/tasks' % (app_id,), 'tasks')
 
 
 class ConsulClient(JsonClient):
@@ -198,7 +227,7 @@ class ConsulClient(JsonClient):
         log.msg('Falling back for %s at %s.' % (
             registration['Name'], self.endpoint))
         return self.request(
-            'PUT', '/v1/agent/service/register',  json_data=registration,
+            'PUT', '/v1/agent/service/register', json_data=registration,
             timeout=self.fallback_timeout)
 
     def deregister_agent_service(self, agent_endpoint, service_id):
@@ -229,27 +258,8 @@ class ConsulClient(JsonClient):
         params = {'keys': ''}
         if separator:
             params['separator'] = separator
-        d = self.request('GET', '/v1/kv/%s?%s' % (quote(keys_path),
-                                                  urlencode(params)))
-        return d.addCallback(self._get_kv_keys_from_response, keys_path)
-
-    def _get_kv_keys_from_response(self, response, keys_path):
-        """
-        Get the list of keys from a Consul k/v store response. If the keys were
-        not found (Consul returned a 404), return an empty list.
-        """
-        if response.code == 200:
-            return response.json()
-        elif response.code == 404:
-            if self.debug:
-                log.msg(
-                    'Consul returned a 404 when getting the keys for %s' % (
-                        keys_path,))
-            return []
-        else:
-            raise RuntimeError('Unexpected response from Consul when getting '
-                               'keys for "%s", status code = %s' % (
-                                   keys_path, response.code,))
+        return self.get_json(
+            '/v1/kv/%s?%s' % (quote(keys_path), urlencode(params),))
 
     def delete_kv_keys(self, key, recurse=False):
         """

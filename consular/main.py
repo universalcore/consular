@@ -1,11 +1,13 @@
 import json
 
-from consular.clients import ConsulClient, MarathonClient
+from consular.clients import (
+    ConsulClient, MarathonClient, UnexpectedResponseError)
 
 from twisted.internet import reactor
 from twisted.web import server
 from twisted.internet.defer import (
     succeed, inlineCallbacks, returnValue, gatherResults)
+from twisted.web.http import NOT_FOUND
 from twisted.python import log
 
 from klein import Klein
@@ -389,6 +391,7 @@ class Consular(object):
         """
         # Get the existing labels from Consul
         d = self.get_consul_app_keys(app_name)
+        d.addErrback(self._ignore_not_found_error, [])
 
         # Filter out the Marathon labels
         d.addCallback(self._filter_marathon_labels, labels)
@@ -454,12 +457,29 @@ class Consular(object):
         """
         # Get the existing keys
         d = self.get_consul_consular_keys()
+        d.addErrback(self._ignore_not_found_error, [])
 
         # Filter the present apps out
         d.addCallback(self._filter_marathon_apps, apps)
 
         # Delete the remaining keys
         return d.addCallback(self.delete_consul_kv_keys, recurse=True)
+
+    def _ignore_not_found_error(self, failure, return_value=None):
+        """
+        Handle `UnexpectedResponseError`s from requests by ignoring not found
+        (404) responses and returning the given return value. Other errors
+        will be re-raised.
+        """
+        # Re-raise any unknown error types
+        failure.trap(UnexpectedResponseError)
+
+        # If not found, return the return value
+        if failure.value.response.code == NOT_FOUND:
+            return return_value
+
+        # Don't know what the response is, re-raise the exception
+        failure.raiseException()
 
     def _filter_marathon_apps(self, consul_keys, marathon_apps):
         """
@@ -517,7 +537,8 @@ class Consular(object):
     def purge_service_if_dead(self, agent_endpoint, app_id, consul_task_ids):
         # Get the running tasks for the app (don't raise an error if the tasks
         # are not found)
-        d = self.marathon_client.get_app_tasks(app_id, raise_error=False)
+        d = self.marathon_client.get_app_tasks(app_id)
+        d.addErrback(self._ignore_not_found_error, [])
 
         # Remove the running tasks from the set of Consul services
         d.addCallback(self._filter_marathon_tasks, consul_task_ids)
