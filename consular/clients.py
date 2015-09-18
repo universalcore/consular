@@ -37,7 +37,8 @@ class JsonClient(object):
     def request(self, method, path, endpoint=None, json_data=None, **kwargs):
         """
         Perform a request. A number of basic defaults are set on the request
-        that make using a JSON API easier.
+        that make using a JSON API easier. These defaults can be overridden by
+        setting the parameters in the keyword args.
 
         :param: method:
             The HTTP method to use (example is `GET`).

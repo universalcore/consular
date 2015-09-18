@@ -559,8 +559,8 @@ class ConsularTest(TestCase):
     def test_sync_apps_field_not_found(self):
         """
         When syncing apps, and Marathon returns a JSON response with an
-        unexpected structure (the "apps" field is missing. A KeyError should
-        be raised.
+        unexpected structure (the "apps" field is missing). A KeyError should
+        be raised with a useful message.
         """
         d = self.consular.sync_apps(purge=False)
         marathon_request = yield self.requests.get()
