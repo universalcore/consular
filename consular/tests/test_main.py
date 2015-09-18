@@ -505,11 +505,12 @@ class ConsularTest(TestCase):
                          'http://localhost:8500/v1/kv/consular/my-app?keys=')
         get_request['deferred'].callback(FakeResponse(403, [], None))
 
+        # Error is raised into a DeferredList, must get actual error
         failure = self.failureResultOf(d, FirstError)
-        error = failure.value.subFailure.value
-        self.assertIsInstance(error, RuntimeError)
+        actual_failure = failure.value.subFailure
+        self.assertEqual(actual_failure.type, RuntimeError)
         self.assertEqual(
-            str(error),
+            actual_failure.getErrorMessage(),
             'Unexpected response from Consul when getting keys for '
             '"consular/my-app", status code = 403')
 
@@ -832,7 +833,7 @@ class ConsularTest(TestCase):
         self.assertEqual(
             consul_request['url'],
             'http://localhost:8500/v1/kv/consular/?keys=&separator=%2F')
-        # Return one existing app and one non-existing app
+        # Return a 404 error
         consul_request['deferred'].callback(FakeResponse(404, [], None))
 
         # No keys exist in Consul so nothing to purge
@@ -852,14 +853,12 @@ class ConsularTest(TestCase):
         self.assertEqual(
             consul_request['url'],
             'http://localhost:8500/v1/kv/consular/?keys=&separator=%2F')
-        # Return one existing app and one non-existing app
+        # Return a 403 error
         consul_request['deferred'].callback(FakeResponse(403, [], None))
 
         failure = self.failureResultOf(d, RuntimeError)
-        error = failure.value
-        self.assertIsInstance(error, RuntimeError)
         self.assertEqual(
-            str(error),
+            failure.getErrorMessage(),
             'Unexpected response from Consul when getting keys for '
             '"consular/", status code = 403')
 
