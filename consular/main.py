@@ -499,7 +499,25 @@ class Consular(object):
             params['separator'] = separator
         d = self.consul_request('GET', '%s/v1/kv/%s?%s' % (
             self.consul_endpoint, quote(key_path), urlencode(params)))
-        return d.addCallback(lambda response: response.json())
+        return d.addCallback(self._get_consul_kv_keys_response, key_path)
+
+    def _get_consul_kv_keys_response(self, response, key_path):
+        """
+        Get the list of keys from a Consul k/v store response. If the keys were
+        not found (Consul returned a 404), return an empty list.
+        """
+        if response.code == 200:
+            return response.json()
+        elif response.code == 404:
+            if self.debug:
+                log.msg(
+                    'Consul returned a 404 when getting the keys for %s' % (
+                        key_path,))
+            return []
+        else:
+            raise RuntimeError('Unexpected response from Consul when getting '
+                               'keys for "%s", status code = %s' % (
+                                   key_path, response.code,))
 
     def delete_consul_kv_keys(self, keys, recurse=False):
         """ Delete a sequence of Consul k/v keys. """

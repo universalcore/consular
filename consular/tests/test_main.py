@@ -5,7 +5,7 @@ from twisted.trial.unittest import TestCase
 from twisted.web.server import Site
 from twisted.internet import reactor
 from twisted.internet.defer import (
-    inlineCallbacks, DeferredQueue, Deferred, succeed)
+    inlineCallbacks, DeferredQueue, Deferred, FirstError, succeed)
 from twisted.web.client import HTTPConnectionPool
 from twisted.python import log
 
@@ -454,6 +454,67 @@ class ConsularTest(TestCase):
         yield d
 
     @inlineCallbacks
+    def test_sync_app_labels_cleanup_not_found(self):
+        """
+        When Consular syncs app labels, and labels aren't found in Consul and
+        Consul returns a 404, we should fail gracefully.
+        """
+        app = {
+            'id': '/my-app',
+            'labels': {'foo': 'bar'}
+        }
+        d = self.consular.sync_app_labels(app)
+        put_request = yield self.requests.get()
+        self.assertEqual(put_request['method'], 'PUT')
+        self.assertEqual(put_request['url'],
+                         'http://localhost:8500/v1/kv/consular/my-app/foo')
+        self.assertEqual(put_request['data'], '"bar"')
+        put_request['deferred'].callback(
+            FakeResponse(200, [], json.dumps({})))
+
+        get_request = yield self.requests.get()
+        self.assertEqual(get_request['method'], 'GET')
+        self.assertEqual(get_request['url'],
+                         'http://localhost:8500/v1/kv/consular/my-app?keys=')
+        get_request['deferred'].callback(FakeResponse(404, [], None))
+
+        yield d
+
+    @inlineCallbacks
+    def test_sync_app_labels_cleanup_forbidden(self):
+        """
+        When Consular syncs app labels, and labels aren't found in Consul and
+        Consul returns a 403, an error should be raised.
+        """
+        app = {
+            'id': '/my-app',
+            'labels': {'foo': 'bar'}
+        }
+        d = self.consular.sync_app_labels(app)
+        put_request = yield self.requests.get()
+        self.assertEqual(put_request['method'], 'PUT')
+        self.assertEqual(put_request['url'],
+                         'http://localhost:8500/v1/kv/consular/my-app/foo')
+        self.assertEqual(put_request['data'], '"bar"')
+        put_request['deferred'].callback(
+            FakeResponse(200, [], json.dumps({})))
+
+        get_request = yield self.requests.get()
+        self.assertEqual(get_request['method'], 'GET')
+        self.assertEqual(get_request['url'],
+                         'http://localhost:8500/v1/kv/consular/my-app?keys=')
+        get_request['deferred'].callback(FakeResponse(403, [], None))
+
+        # Error is raised into a DeferredList, must get actual error
+        failure = self.failureResultOf(d, FirstError)
+        actual_failure = failure.value.subFailure
+        self.assertEqual(actual_failure.type, RuntimeError)
+        self.assertEqual(
+            actual_failure.getErrorMessage(),
+            'Unexpected response from Consul when getting keys for '
+            '"consular/my-app", status code = 403')
+
+    @inlineCallbacks
     def test_sync_app(self):
         app = {
             'id': '/my-app',
@@ -757,6 +818,49 @@ class ConsularTest(TestCase):
             FakeResponse(200, [], json.dumps({})))
 
         yield d
+
+    @inlineCallbacks
+    def test_purge_dead_app_labels_not_found(self):
+        """
+        When purging labels from the Consul k/v store, if Consul can't find
+        a key and returns 404, we should fail gracefully.
+        """
+        d = self.consular.purge_dead_app_labels([{
+            'id': 'my-app'
+        }])
+        consul_request = yield self.requests.get()
+        self.assertEqual(consul_request['method'], 'GET')
+        self.assertEqual(
+            consul_request['url'],
+            'http://localhost:8500/v1/kv/consular/?keys=&separator=%2F')
+        # Return a 404 error
+        consul_request['deferred'].callback(FakeResponse(404, [], None))
+
+        # No keys exist in Consul so nothing to purge
+        yield d
+
+    @inlineCallbacks
+    def test_purge_dead_app_labels_forbidden(self):
+        """
+        When purging labels from the Consul k/v store, if Consul can't find
+        a key and returns 403, an error should be raised.
+        """
+        d = self.consular.purge_dead_app_labels([{
+            'id': 'my-app'
+        }])
+        consul_request = yield self.requests.get()
+        self.assertEqual(consul_request['method'], 'GET')
+        self.assertEqual(
+            consul_request['url'],
+            'http://localhost:8500/v1/kv/consular/?keys=&separator=%2F')
+        # Return a 403 error
+        consul_request['deferred'].callback(FakeResponse(403, [], None))
+
+        failure = self.failureResultOf(d, RuntimeError)
+        self.assertEqual(
+            failure.getErrorMessage(),
+            'Unexpected response from Consul when getting keys for '
+            '"consular/", status code = 403')
 
     @inlineCallbacks
     def test_fallback_to_main_consul(self):
