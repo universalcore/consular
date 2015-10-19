@@ -507,11 +507,10 @@ class ConsularTest(TestCase):
         get_request['deferred'].callback(FakeResponse(403, [], None))
 
         # Error is raised into a DeferredList, must get actual error
-        failure = self.failureResultOf(d, FirstError)
-        actual_failure = failure.value.subFailure
-        self.assertEqual(actual_failure.type, UnexpectedResponseError)
+        failure = self.failureResultOf(d, UnexpectedResponseError)
+        self.assertEqual(failure.type, UnexpectedResponseError)
         self.assertEqual(
-            actual_failure.getErrorMessage(),
+            failure.getErrorMessage(),
             'response: code=403, body=None \nrequest: method=, url=, body=')
 
     @inlineCallbacks
