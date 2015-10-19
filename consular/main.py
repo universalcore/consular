@@ -383,20 +383,26 @@ class Consular(object):
         for key, value in key_values.items():
             yield self.consul_client.put_kv(key, value)
 
+    @inlineCallbacks
     def clean_consul_app_labels(self, app_name, labels):
         """
         Delete app labels stored in the Consul k/v store under the given app
         name that aren't present in the given set of labels.
         """
         # Get the existing labels from Consul
-        d = self.get_consul_app_keys(app_name)
-        d.addErrback(self._ignore_not_found_error, [])
+        try:
+            keys = yield self.get_consul_app_keys(app_name)
+        except UnexpectedResponseError as e:
+            if e.response.code == NOT_FOUND:
+                keys = []
+            else:
+                raise e
 
         # Filter out the Marathon labels
-        d.addCallback(self._filter_marathon_labels, labels)
+        keys = self._filter_marathon_labels(keys, labels)
 
         # Delete the non-existant keys
-        return d.addCallback(self.delete_consul_kv_keys)
+        yield self.delete_consul_kv_keys(keys)
 
     def get_consul_app_keys(self, app_name):
         """ Get the Consul k/v keys for the app with the given name. """
@@ -448,6 +454,7 @@ class Consular(object):
             get_agent_endpoint(task['host']), app['id'], task['id'],
             task['host'], task['ports'][0])
 
+    @inlineCallbacks
     def purge_dead_app_labels(self, apps):
         """
         Delete any keys stored in the Consul k/v store that belong to apps that
@@ -457,30 +464,19 @@ class Consular(object):
             The list of apps as returned by the Marathon API.
         """
         # Get the existing keys
-        d = self.get_consul_consular_keys()
-        d.addErrback(self._ignore_not_found_error, [])
+        try:
+            keys = yield self.get_consul_consular_keys()
+        except UnexpectedResponseError as e:
+            if e.response.code == NOT_FOUND:
+                keys = []
+            else:
+                raise e
 
         # Filter the present apps out
-        d.addCallback(self._filter_marathon_apps, apps)
+        keys = self._filter_marathon_apps(keys, apps)
 
         # Delete the remaining keys
-        return d.addCallback(self.delete_consul_kv_keys, recurse=True)
-
-    def _ignore_not_found_error(self, failure, return_value=None):
-        """
-        Handle `UnexpectedResponseError`s from requests by ignoring not found
-        (404) responses and returning the given return value. Other errors
-        will be re-raised.
-        """
-        # Re-raise any unknown error types
-        failure.trap(UnexpectedResponseError)
-
-        # If not found, return the return value
-        if failure.value.response.code == NOT_FOUND:
-            return return_value
-
-        # Don't know what the response is, re-raise the exception
-        failure.raiseException()
+        yield self.delete_consul_kv_keys(keys, recurse=True)
 
     def _filter_marathon_apps(self, consul_keys, marathon_apps):
         """
@@ -539,14 +535,18 @@ class Consular(object):
     def purge_service_if_dead(self, agent_endpoint, app_id, consul_task_ids):
         # Get the running tasks for the app (don't raise an error if the tasks
         # are not found)
-        d = self.marathon_client.get_app_tasks(app_id)
-        d.addErrback(self._ignore_not_found_error, [])
+        try:
+            tasks = yield self.marathon_client.get_app_tasks(app_id)
+        except UnexpectedResponseError as e:
+            if e.response.code == NOT_FOUND:
+                tasks = []
+            else:
+                raise e
 
         # Remove the running tasks from the set of Consul services
-        d.addCallback(self._filter_marathon_tasks, consul_task_ids)
+        service_ids = self._filter_marathon_tasks(tasks, consul_task_ids)
 
         # Deregister the remaining old services
-        service_ids = yield d
         for service_id in service_ids:
             yield self.deregister_service(agent_endpoint, app_id, service_id)
 
