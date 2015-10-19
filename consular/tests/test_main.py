@@ -5,7 +5,7 @@ from twisted.trial.unittest import TestCase
 from twisted.web.server import Site
 from twisted.internet import reactor
 from twisted.internet.defer import (
-    inlineCallbacks, DeferredQueue, Deferred, FirstError, succeed)
+    inlineCallbacks, DeferredQueue, Deferred, succeed)
 from twisted.web.client import HTTPConnectionPool
 from twisted.python import log
 
