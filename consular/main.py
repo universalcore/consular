@@ -29,7 +29,7 @@ class ConsularSite(server.Site):
     debug = False
 
     def log(self, request):
-        if self._debug:
+        if self.debug:
             server.Site.log(self, request)
 
 
