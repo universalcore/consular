@@ -5,8 +5,7 @@ from consular.clients import (
 
 from twisted.internet import reactor
 from twisted.web import server
-from twisted.internet.defer import (
-    succeed, inlineCallbacks, returnValue, gatherResults)
+from twisted.internet.defer import succeed, inlineCallbacks, returnValue
 from twisted.web.http import NOT_FOUND
 from twisted.python import log
 
@@ -306,11 +305,13 @@ class Consular(object):
         d.addCallback(self.check_apps_namespace_clash)
         return d.addCallback(self.sync_and_purge_apps, purge)
 
+    @inlineCallbacks
     def sync_and_purge_apps(self, apps, purge=False):
-        deferreds = [gatherResults([self.sync_app(app) for app in apps])]
+        for app in apps:
+            yield self.sync_app(app)
+
         if purge:
-            deferreds.append(self.purge_dead_apps(apps))
-        return gatherResults(deferreds)
+            yield self.purge_dead_apps(apps)
 
     def check_apps_namespace_clash(self, apps):
         """
@@ -341,18 +342,17 @@ class Consular(object):
 
         return apps
 
+    @inlineCallbacks
     def sync_app(self, app):
-        return gatherResults([
-            self.sync_app_labels(app),
-            self.sync_app_tasks(app),
-        ])
+        yield self.sync_app_labels(app)
+        yield self.sync_app_tasks(app)
 
+    @inlineCallbacks
     def purge_dead_apps(self, apps):
-        return gatherResults([
-            self.purge_dead_services(),
-            self.purge_dead_app_labels(apps)
-        ])
+        yield self.purge_dead_services()
+        yield self.purge_dead_app_labels(apps)
 
+    @inlineCallbacks
     def sync_app_labels(self, app):
         """
         Sync the app labels for the given app by pushing its labels to the
@@ -366,10 +366,8 @@ class Consular(object):
         #       we're already connected to, they're not local to the agents.
         app_name = get_app_name(app['id'])
         labels = app.get('labels', {})
-        return gatherResults([
-            self.put_consul_app_labels(app_name, labels),
-            self.clean_consul_app_labels(app_name, labels)
-        ])
+        yield self.put_consul_app_labels(app_name, labels)
+        yield self.clean_consul_app_labels(app_name, labels)
 
     def put_consul_app_labels(self, app_name, labels):
         """
@@ -379,10 +377,11 @@ class Consular(object):
         return self.put_consul_kvs({'consular/%s/%s' % (app_name, key,): value
                                     for key, value in labels.items()})
 
+    @inlineCallbacks
     def put_consul_kvs(self, key_values):
         """ Store the given key/value set in the Consul k/v store. """
-        return gatherResults([self.consul_client.put_kv(key, value)
-                              for key, value in key_values.items()])
+        for key, value in key_values.items():
+            yield self.consul_client.put_kv(key, value)
 
     def clean_consul_app_labels(self, app_name, labels):
         """
@@ -410,10 +409,11 @@ class Consular(object):
         """
         return self.consul_client.get_kv_keys('consular/', separator='/')
 
+    @inlineCallbacks
     def delete_consul_kv_keys(self, keys, recurse=False):
         """ Delete a sequence of Consul k/v keys. """
-        return gatherResults([self.consul_client.delete_kv_keys(key, recurse)
-                              for key in keys])
+        for key in keys:
+            yield self.consul_client.delete_kv_keys(key, recurse)
 
     def _filter_marathon_labels(self, consul_keys, marathon_labels):
         """
@@ -437,10 +437,11 @@ class Consular(object):
         """
         return consul_key.split('/', 2)[-1]
 
+    @inlineCallbacks
     def sync_app_tasks(self, app):
-        d = self.marathon_client.get_app_tasks(app['id'])
-        return d.addCallback(lambda tasks: gatherResults(
-            self.sync_app_task(app, task) for task in tasks))
+        tasks = yield self.marathon_client.get_app_tasks(app['id'])
+        for task in tasks:
+            yield self.sync_app_task(app, task)
 
     def sync_app_task(self, app, task):
         return self.register_service(
@@ -503,12 +504,12 @@ class Consular(object):
         """
         return consul_key.split('/', 1)[-1]
 
+    @inlineCallbacks
     def purge_dead_services(self):
-        d = self.consul_client.get_catalog_nodes()
-        return d.addCallback(lambda data: gatherResults([
+        nodes = yield self.consul_client.get_catalog_nodes()
+        for node in nodes:
             self.purge_dead_agent_services(
-                get_agent_endpoint(node['Address'])) for node in data
-        ]))
+                get_agent_endpoint(node['Address']))
 
     @inlineCallbacks
     def purge_dead_agent_services(self, agent_endpoint):
@@ -534,6 +535,7 @@ class Consular(object):
         for app_id, task_ids in services.items():
             yield self.purge_service_if_dead(agent_endpoint, app_id, task_ids)
 
+    @inlineCallbacks
     def purge_service_if_dead(self, agent_endpoint, app_id, consul_task_ids):
         # Get the running tasks for the app (don't raise an error if the tasks
         # are not found)
@@ -544,9 +546,9 @@ class Consular(object):
         d.addCallback(self._filter_marathon_tasks, consul_task_ids)
 
         # Deregister the remaining old services
-        return d.addCallback(lambda service_ids: gatherResults(
-            [self.deregister_service(agent_endpoint, app_id, service_id)
-             for service_id in service_ids]))
+        service_ids = yield d
+        for service_id in service_ids:
+            yield self.deregister_service(agent_endpoint, app_id, service_id)
 
     def _filter_marathon_tasks(self, marathon_tasks, consul_service_ids):
         if not marathon_tasks:
