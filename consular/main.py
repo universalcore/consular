@@ -390,6 +390,7 @@ class Consular(object):
         name that aren't present in the given set of labels.
         """
         # Get the existing labels from Consul
+        log.msg('Cleaning labels no longer in use by app "%s"' % app_name)
         try:
             keys = yield self.get_consul_app_keys(app_name)
         except UnexpectedResponseError as e:
@@ -398,8 +399,14 @@ class Consular(object):
             else:
                 raise e
 
+        log.msg('%d labels stored in Marathon, %d keys found in Consul for app'
+                ' "%s"' % (len(labels), len(keys), app_name))
+
         # Filter out the Marathon labels
         keys = self._filter_marathon_labels(keys, labels)
+
+        log.msg('%d keys to be deleted from Consul for app %s' % (
+            len(keys), app_name))
 
         # Delete the non-existant keys
         yield self.delete_consul_kv_keys(keys)
@@ -465,6 +472,7 @@ class Consular(object):
         :param: apps:
             The list of apps as returned by the Marathon API.
         """
+        log.msg('Purging dead app labels')
         # Get the existing keys
         try:
             keys = yield self.get_consul_consular_keys()
@@ -474,8 +482,12 @@ class Consular(object):
             else:
                 raise e
 
+        log.msg('Got %d keys from Consul' % len(keys))
+
         # Filter the present apps out
         keys = self._filter_marathon_apps(keys, apps)
+        log.msg('After filtering out running apps, %d Consul keys remain to be'
+                'purged' % len(keys))
 
         # Delete the remaining keys
         yield self.delete_consul_kv_keys(keys, recurse=True)
