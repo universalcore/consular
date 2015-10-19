@@ -419,6 +419,8 @@ class Consular(object):
     def delete_consul_kv_keys(self, keys, recurse=False):
         """ Delete a sequence of Consul k/v keys. """
         for key in keys:
+            log.msg('Deleting Consul k/v key "%s", recursively? %s' % (
+                key, recurse))
             yield self.consul_client.delete_kv_keys(key, recurse)
 
     def _filter_marathon_labels(self, consul_keys, marathon_labels):
