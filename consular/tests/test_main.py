@@ -900,8 +900,8 @@ class ConsularTest(TestCase):
         # Return one existing app and one non-existing app
         consul_request['deferred'].callback(
             FakeResponse(200, [], json.dumps([
-                'consular/my-app',
-                'consular/my-app2',
+                'consular/my-app/',
+                'consular/my-app2/',
             ]))
         )
 
@@ -910,7 +910,7 @@ class ConsularTest(TestCase):
         self.assertEqual(consul_request['method'], 'DELETE')
         self.assertEqual(
             consul_request['url'],
-            'http://localhost:8500/v1/kv/consular/my-app2?recurse')
+            'http://localhost:8500/v1/kv/consular/my-app2/?recurse')
         consul_request['deferred'].callback(
             FakeResponse(200, [], json.dumps({})))
 
