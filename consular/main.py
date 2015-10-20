@@ -333,6 +333,7 @@ class Consular(object):
             yield self.sync_app(app)
 
         if purge:
+            log.msg('Purging dead apps')
             yield self.purge_dead_apps(apps)
 
     def check_apps_namespace_clash(self, apps):
