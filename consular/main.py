@@ -311,6 +311,7 @@ class Consular(object):
         return self.consul_client.deregister_agent_service(
             agent_endpoint, service_id)
 
+    @inlineCallbacks
     def sync_apps(self, purge=False):
         """
         Ensure all the apps in Marathon are registered as services
@@ -323,12 +324,11 @@ class Consular(object):
         :param bool purge:
             To purge or not to purge.
         """
-        d = self.marathon_client.get_apps()
-        d.addCallback(self.check_apps_namespace_clash)
-        return d.addCallback(self.sync_and_purge_apps, purge)
+        log.msg('Syncing apps')
+        apps = yield self.marathon_client.get_apps()
 
-    @inlineCallbacks
-    def sync_and_purge_apps(self, apps, purge=False):
+        self.check_apps_namespace_clash(apps)
+
         for app in apps:
             yield self.sync_app(app)
 
