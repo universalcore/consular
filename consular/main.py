@@ -24,6 +24,28 @@ def get_agent_endpoint(host):
     return 'http://%s:8500' % (host,)
 
 
+@inlineCallbacks
+def handle_not_found_error(f, *args, **kwargs):
+    """
+    Perform a request and catch the not found (404) error if one occurs.
+
+    :param: f: The function to call to perform the request. The function may
+        return a deferred.
+    :param: args: The arguments to call the function with.
+    :param: kwargs: The keyword arguments to call the function with.
+    :returns: The return value of the function call or None if there was a 404
+        response code.
+    """
+    try:
+        response = yield f(*args, **kwargs)
+    except UnexpectedResponseError as e:
+        if e.response.code == NOT_FOUND:
+            response = None
+        else:
+            raise e
+    returnValue(response)
+
+
 class ConsularSite(server.Site):
 
     debug = False
@@ -391,13 +413,10 @@ class Consular(object):
         """
         # Get the existing labels from Consul
         log.msg('Cleaning labels no longer in use by app "%s"' % app_name)
-        try:
-            keys = yield self.get_consul_app_keys(app_name)
-        except UnexpectedResponseError as e:
-            if e.response.code == NOT_FOUND:
-                keys = []
-            else:
-                raise e
+        keys = yield handle_not_found_error(self.get_consul_app_keys, app_name)
+        if keys is None:
+            log.msg('No keys found in Consul for service "%s"' % app_name)
+            return
 
         log.msg('%d labels stored in Marathon, %d keys found in Consul for app'
                 ' "%s"' % (len(labels), len(keys), app_name))
@@ -474,13 +493,10 @@ class Consular(object):
         """
         log.msg('Purging dead app labels')
         # Get the existing keys
-        try:
-            keys = yield self.get_consul_consular_keys()
-        except UnexpectedResponseError as e:
-            if e.response.code == NOT_FOUND:
-                keys = []
-            else:
-                raise e
+        keys = yield handle_not_found_error(self.get_consul_consular_keys)
+        if keys is None:
+            log.msg('No Consular keys found in Consul')
+            return
 
         log.msg('Got %d keys from Consul' % len(keys))
 
@@ -549,13 +565,11 @@ class Consular(object):
     def purge_service_if_dead(self, agent_endpoint, app_id, consul_task_ids):
         # Get the running tasks for the app (don't raise an error if the tasks
         # are not found)
-        try:
-            tasks = yield self.marathon_client.get_app_tasks(app_id)
-        except UnexpectedResponseError as e:
-            if e.response.code == NOT_FOUND:
-                tasks = []
-            else:
-                raise e
+        tasks = yield handle_not_found_error(
+            self.marathon_client.get_app_tasks, app_id)
+        if tasks is None:
+            log.msg('No tasks found in Marathon for app ID "%s"' % app_id)
+            tasks = []
 
         # Remove the running tasks from the set of Consul services
         service_ids = self._filter_marathon_tasks(tasks, consul_task_ids)
