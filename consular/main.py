@@ -412,20 +412,24 @@ class Consular(object):
         name that aren't present in the given set of labels.
         """
         # Get the existing labels from Consul
-        log.msg('Cleaning labels no longer in use by app "%s"' % app_name)
+        if self._debug:
+            log.msg('Cleaning labels no longer in use by app "%s"' % app_name)
+
         keys = yield handle_not_found_error(self.get_consul_app_keys, app_name)
         if keys is None:
             log.msg('No keys found in Consul for service "%s"' % app_name)
             return
 
-        log.msg('%d labels stored in Marathon, %d keys found in Consul for app'
-                ' "%s"' % (len(labels), len(keys), app_name))
+        if self._debug:
+            log.msg('%d labels stored in Marathon, %d keys found in Consul '
+                    'for app "%s"' % (len(labels), len(keys), app_name))
 
         # Filter out the Marathon labels
         keys = self._filter_marathon_labels(keys, labels)
 
-        log.msg('%d keys to be deleted from Consul for app %s' % (
-            len(keys), app_name))
+        if self._debug:
+            log.msg('%d keys to be deleted from Consul for app %s' % (
+                len(keys), app_name))
 
         # Delete the non-existant keys
         for key in keys:
@@ -491,12 +495,15 @@ class Consular(object):
             log.msg('No Consular keys found in Consul')
             return
 
-        log.msg('Got %d keys from Consul' % len(keys))
+        if self._debug:
+            log.msg('Got %d keys from Consul' % len(keys))
 
         # Filter the present apps out
         keys = self._filter_marathon_apps(keys, apps)
-        log.msg('After filtering out running apps, %d Consul keys remain to be'
-                'purged' % len(keys))
+
+        if self._debug:
+            log.msg('After filtering out running apps, %d Consul keys remain '
+                    'to be purged' % len(keys))
 
         # Delete the remaining keys
         for key in keys:
