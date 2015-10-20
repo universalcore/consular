@@ -372,8 +372,7 @@ class Consular(object):
     @inlineCallbacks
     def purge_dead_apps(self, apps):
         yield self.purge_dead_services()
-        # TODO: Fix app label purging (see issue #43)
-        # yield self.purge_dead_app_labels(apps)
+        yield self.purge_dead_app_labels(apps)
 
     @inlineCallbacks
     def sync_app_labels(self, app):
