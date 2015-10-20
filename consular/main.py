@@ -428,7 +428,8 @@ class Consular(object):
             len(keys), app_name))
 
         # Delete the non-existant keys
-        yield self.delete_consul_kv_keys(keys)
+        for key in keys:
+            yield self.consul_client.delete_kv_keys(key)
 
     def get_consul_app_keys(self, app_name):
         """ Get the Consul k/v keys for the app with the given name. """
@@ -440,14 +441,6 @@ class Consular(object):
         return 'consular/my-app' but not 'consular/my-app/my-label'.
         """
         return self.consul_client.get_kv_keys('consular/', separator='/')
-
-    @inlineCallbacks
-    def delete_consul_kv_keys(self, keys, recurse=False):
-        """ Delete a sequence of Consul k/v keys. """
-        for key in keys:
-            log.msg('Deleting Consul k/v key "%s", recursively? %s' % (
-                key, recurse))
-            yield self.consul_client.delete_kv_keys(key, recurse)
 
     def _filter_marathon_labels(self, consul_keys, marathon_labels):
         """
@@ -506,7 +499,8 @@ class Consular(object):
                 'purged' % len(keys))
 
         # Delete the remaining keys
-        yield self.delete_consul_kv_keys(keys, recurse=True)
+        for key in keys:
+            yield self.consul_client.delete_kv_keys(key, recurse=True)
 
     def _filter_marathon_apps(self, consul_keys, marathon_apps):
         """
