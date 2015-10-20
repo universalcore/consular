@@ -530,7 +530,7 @@ class Consular(object):
         Trims the 'consular/' from the front of the key path to get the
         Marathon app name.
         """
-        return consul_key.split('/', 1)[-1]
+        return consul_key.split('/', 1)[-1].strip('/')
 
     @inlineCallbacks
     def purge_dead_services(self):
