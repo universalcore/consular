@@ -75,50 +75,45 @@ class JsonClient(object):
         if self.debug:
             d.addCallback(self._log_http_response, method, url, data)
 
-        return d.addErrback(self._log_http_error, url)
+        d.addErrback(self._log_http_error, url)
+        return d.addCallback(self._raise_for_status, url)
 
     def get_json(self, path, **kwargs):
         """
         Perform a GET request to the given path and return the JSON response.
         """
         d = self.request('GET', path, **kwargs)
-        return d.addCallback(self._response_json_if_ok)
+        return d.addCallback(lambda response: response.json())
 
-    def _response_json_if_ok(self, response):
+    def _raise_for_status(self, response, url):
         """
-        Get the response JSON content if the respones code is OK (200), else
-        raise an `UnexpectedResponseError`.
+        Raises an `HTTPError` if the response did not succeed.
+        Adapted from the Requests library:
+        https://github.com/kennethreitz/requests/blob/v2.8.1/requests/models.py#L825-L837
         """
-        if response.code == OK:
-            return response.json()
-        else:
-            d = response.content()
-            d.addCallback(self._raise_unexpected_response_error, response)
-            return d
+        http_error_msg = ''
 
-    def _raise_unexpected_response_error(self, response_content, response):
-        raise UnexpectedResponseError(response, response_content)
+        if 400 <= response.code < 500:
+            http_error_msg = '%s Client Error for url: %s' % (response.code,
+                                                              url)
+
+        elif 500 <= response.code < 600:
+            http_error_msg = '%s Server Error for url: %s' % (response.code,
+                                                              url)
+
+        if http_error_msg:
+            raise HTTPError(http_error_msg, response)
+
+        return response
 
 
-class UnexpectedResponseError(Exception):
+class HTTPError(IOError):
     """
-    Error raised for a non-200 response code.
+    Error raised for 4xx and 5xx response codes.
     """
-    def __init__(self, response, response_content, message=None):
-        if not message:
-            message = self._default_error_message(response, response_content)
-
-        super(UnexpectedResponseError, self).__init__(message)
+    def __init__(self, message, response):
         self.response = response
-
-    def _default_error_message(self, response, response_content):
-        # Due to current testing method we can't get the Twisted Request object
-        # from the response and add extra useful fields to the error message.
-
-        # request = response.request
-        return 'response: code=%d, body=%s \nrequest: method=, url=, body=' % (
-            response.code, response_content,)
-        # request.method, request.url, request.data))
+        super(HTTPError, self).__init__(message)
 
 
 class MarathonClient(JsonClient):

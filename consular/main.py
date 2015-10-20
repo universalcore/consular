@@ -1,7 +1,6 @@
 import json
 
-from consular.clients import (
-    ConsulClient, MarathonClient, UnexpectedResponseError)
+from consular.clients import ConsulClient, MarathonClient, HTTPError
 
 from twisted.internet import reactor
 from twisted.web import server
@@ -38,7 +37,7 @@ def handle_not_found_error(f, *args, **kwargs):
     """
     try:
         response = yield f(*args, **kwargs)
-    except UnexpectedResponseError as e:
+    except HTTPError as e:
         if e.response.code == NOT_FOUND:
             response = None
         else:
