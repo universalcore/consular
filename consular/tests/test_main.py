@@ -9,7 +9,7 @@ from twisted.internet.defer import (
 from twisted.web.client import HTTPConnectionPool
 from twisted.python import log
 
-from consular.clients import UnexpectedResponseError
+from consular.clients import HTTPError
 from consular.main import Consular
 
 import treq
@@ -321,13 +321,11 @@ class ConsularTest(TestCase):
                 'instance. Please re-start this instance with '
                 '"--event_subscriber http_callback".'})))
 
-        failure = self.failureResultOf(d, UnexpectedResponseError)
+        failure = self.failureResultOf(d, HTTPError)
         self.assertEqual(
             failure.getErrorMessage(),
-            'response: code=400, body={"message": "http event callback system '
-            'is not running on this Marathon instance. Please re-start this '
-            'instance with \\"--event_subscriber http_callback\\"."} '
-            '\nrequest: method=, url=, body=')
+            '400 Client Error for url: '
+            'http://localhost:8080/v2/eventSubscriptions')
 
     @inlineCallbacks
     def test_sync_app_task(self):
@@ -507,11 +505,11 @@ class ConsularTest(TestCase):
         get_request['deferred'].callback(FakeResponse(403, [], None))
 
         # Error is raised into a DeferredList, must get actual error
-        failure = self.failureResultOf(d, UnexpectedResponseError)
-        self.assertEqual(failure.type, UnexpectedResponseError)
+        failure = self.failureResultOf(d, HTTPError)
         self.assertEqual(
             failure.getErrorMessage(),
-            'response: code=403, body=None \nrequest: method=, url=, body=')
+            '403 Client Error for url: '
+            'http://localhost:8500/v1/kv/consular/my-app?keys=')
 
     @inlineCallbacks
     def test_sync_app(self):
@@ -955,10 +953,11 @@ class ConsularTest(TestCase):
         # Return a 403 error
         consul_request['deferred'].callback(FakeResponse(403, [], None))
 
-        failure = self.failureResultOf(d, UnexpectedResponseError)
+        failure = self.failureResultOf(d, HTTPError)
         self.assertEqual(
             failure.getErrorMessage(),
-            'response: code=403, body=None \nrequest: method=, url=, body=')
+            '403 Client Error for url: '
+            'http://localhost:8500/v1/kv/consular/?keys=&separator=%2F')
 
     @inlineCallbacks
     def test_fallback_to_main_consul(self):
