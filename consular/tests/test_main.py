@@ -402,10 +402,29 @@ class ConsularTest(TestCase):
             'http://localhost:8080/v2/eventSubscriptions')
 
     @inlineCallbacks
-    def test_sync_app_task(self):
-        app = {'id': '/my-app'}
-        task = {'id': 'my-task-id', 'host': '0.0.0.0', 'ports': [1234]}
-        d = self.consular.sync_app_task(app, task)
+    def test_sync_app_tasks(self):
+        """
+        When syncing an app with a task, Consul is updated with a service entry
+        for the task.
+        """
+        d = self.consular.sync_app_tasks({'id': '/my-app'})
+
+        # First Consular fetches the tasks for the app
+        marathon_request = yield self.requests.get()
+        self.assertEqual(marathon_request['method'], 'GET')
+        self.assertEqual(
+            marathon_request['url'],
+            'http://localhost:8080/v2/apps/my-app/tasks')
+
+        # Respond with one task
+        marathon_request['deferred'].callback(
+            FakeResponse(200, [], json.dumps({
+                'tasks': [
+                    {'id': 'my-task-id', 'host': '0.0.0.0', 'ports': [1234]}
+                ]}))
+        )
+
+        # Consular should register the task in Consul
         consul_request = yield self.requests.get()
         self.assertEqual(
             consul_request['url'],
@@ -431,9 +450,24 @@ class ConsularTest(TestCase):
         When syncing an app in a group with a task, Consul is updated with a
         service entry for the task.
         """
-        app = {'id': '/my-group/my-app'}
-        task = {'id': 'my-task-id', 'host': '0.0.0.0', 'ports': [1234]}
-        d = self.consular.sync_app_task(app, task)
+        d = self.consular.sync_app_tasks({'id': '/my-group/my-app'})
+
+        # First Consular fetches the tasks for the app
+        marathon_request = yield self.requests.get()
+        self.assertEqual(marathon_request['method'], 'GET')
+        self.assertEqual(
+            marathon_request['url'],
+            'http://localhost:8080/v2/apps/my-group/my-app/tasks')
+
+        # Respond with one task
+        marathon_request['deferred'].callback(
+            FakeResponse(200, [], json.dumps({
+                'tasks': [
+                    {'id': 'my-task-id', 'host': '0.0.0.0', 'ports': [1234]}
+                ]}))
+        )
+
+        # Consular should register the task in Consul
         consul_request = yield self.requests.get()
         self.assertEqual(
             consul_request['url'],
@@ -1036,8 +1070,8 @@ class ConsularTest(TestCase):
     @inlineCallbacks
     def test_fallback_to_main_consul(self):
         self.consular.consul_client.enable_fallback = True
-        self.consular.register_service(
-            'http://foo:8500', '/app_id', 'service_id', 'foo', 1234)
+        self.consular.register_task_service(
+            '/app_id', 'service_id', 'foo', 1234)
         request = yield self.requests.get()
         self.assertEqual(
             request['url'],
