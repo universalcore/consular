@@ -122,9 +122,20 @@ class Consular(object):
             A tuple of the LoopingCall object and the deferred created when it
             was started.
         """
-        lc = LoopingCall(self.sync_apps, purge)
+        lc = LoopingCall(self._try_sync_apps, purge)
         lc.clock = self.clock
         return (lc, lc.start(interval, now=True))
+
+    @inlineCallbacks
+    def _try_sync_apps(self, purge=False):
+        """
+        Sync the apps, catching and logging any exception that occurs.
+        """
+        try:
+            yield self.sync_apps(purge)
+        except Exception as e:
+            # TODO: More specialised exception handling.
+            log.msg('Error syncing apps: %s' % e)
 
     @inlineCallbacks
     def register_marathon_event_callback(self, events_url):
