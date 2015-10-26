@@ -118,9 +118,13 @@ class Consular(object):
             The number of seconds between syncs.
         :param bool purge:
             Whether to purge old apps after each sync.
+        :return:
+            A tuple of the LoopingCall object and the deferred created when it
+            was started.
         """
         lc = LoopingCall(self.sync_apps, purge)
-        lc.start(interval, now=True)
+        lc.clock = self.clock
+        return (lc, lc.start(interval, now=True))
 
     @inlineCallbacks
     def register_marathon_event_callback(self, events_url):

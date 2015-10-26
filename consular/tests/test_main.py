@@ -6,6 +6,7 @@ from twisted.web.server import Site
 from twisted.internet import reactor
 from twisted.internet.defer import (
     inlineCallbacks, DeferredQueue, Deferred, succeed)
+from twisted.internet.task import Clock
 from twisted.web.client import HTTPConnectionPool
 from twisted.python import log
 
@@ -47,6 +48,7 @@ class ConsularTest(TestCase):
             'test'
         )
         self.consular.set_debug(True)
+        self.consular.clock = Clock()
 
         # spin up a site so we can test it, pretty sure Klein has better
         # ways of doing this but they're not documented anywhere.
@@ -266,6 +268,42 @@ class ConsularTest(TestCase):
         self.assertEqual((yield response.json()), {
             'status': 'ok'
         })
+
+    @inlineCallbacks
+    def test_schedule_sync(self):
+        """
+        When Consular is set to schedule syncs, a sync should occur right away
+        and further syncs should occur after the correct delay.
+        """
+        lc, d = self.consular.schedule_sync(1)
+
+        self.assertTrue(lc.running)
+
+        # Consular should do the first sync right away
+        request = yield self.requests.get()
+        self.assertEqual(request['method'], 'GET')
+        self.assertEqual(
+            request['url'],
+            'http://localhost:8080/v2/apps')
+
+        # Return no apps... let's make this quick
+        request['deferred'].callback(
+            FakeResponse(200, [], json.dumps({'apps': []})))
+
+        # Advance the clock for the next sync
+        self.consular.clock.advance(1)
+
+        request = yield self.requests.get()
+        self.assertEqual(request['method'], 'GET')
+        self.assertEqual(
+            request['url'],
+            'http://localhost:8080/v2/apps')
+
+        request['deferred'].callback(
+            FakeResponse(200, [], json.dumps({'apps': []})))
+
+        lc.stop()
+        yield d
 
     @inlineCallbacks
     def test_register_with_marathon(self):
