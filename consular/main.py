@@ -5,6 +5,7 @@ from consular.clients import ConsulClient, MarathonClient, HTTPError
 from twisted.internet import reactor
 from twisted.web import server
 from twisted.internet.defer import succeed, inlineCallbacks, returnValue
+from twisted.internet.task import LoopingCall
 from twisted.web.http import NOT_FOUND
 from twisted.python import log
 
@@ -107,6 +108,34 @@ class Consular(object):
         site = ConsularSite(self.app.resource())
         site.debug = self._debug
         self.clock.listenTCP(port, site, interface=host)
+
+    def schedule_sync(self, interval, purge=False):
+        """
+        Schedule a recurring sync of apps, starting after this method is
+        called.
+
+        :param float interval:
+            The number of seconds between syncs.
+        :param bool purge:
+            Whether to purge old apps after each sync.
+        :return:
+            A tuple of the LoopingCall object and the deferred created when it
+            was started.
+        """
+        lc = LoopingCall(self._try_sync_apps, purge)
+        lc.clock = self.clock
+        return (lc, lc.start(interval, now=True))
+
+    @inlineCallbacks
+    def _try_sync_apps(self, purge=False):
+        """
+        Sync the apps, catching and logging any exception that occurs.
+        """
+        try:
+            yield self.sync_apps(purge)
+        except Exception as e:
+            # TODO: More specialised exception handling.
+            log.msg('Error syncing apps: %s' % e)
 
     @inlineCallbacks
     def register_marathon_event_callback(self, events_url):
