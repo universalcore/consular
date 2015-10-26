@@ -230,8 +230,17 @@ class Consular(object):
             event['appId'], event['taskId'], event['host'], event['ports'][0])
 
         # Sync the app labels in case they've changed or aren't stored yet
-        app = yield self.marathon_client.get_app(event['appId'])
-        yield self.sync_app_labels(app)
+        app = yield handle_not_found_error(
+            self.marathon_client.get_app, event['appId'])
+
+        # The app could have disappeared in this time if it was destroyed. If
+        # it has been destroyed, do nothing and wait for the TASK_KILLED event
+        # to clear it.
+        if app is not None:
+            yield self.sync_app_labels(app)
+        else:
+            log.msg('Warning. App with ID "%s" could not be found for new '
+                    'task with ID "%s"' % (event['appId'], event['taskId'],))
 
         returnValue(json.dumps({'status': 'ok'}))
 
