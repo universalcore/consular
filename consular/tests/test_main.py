@@ -306,6 +306,42 @@ class ConsularTest(TestCase):
         yield d
 
     @inlineCallbacks
+    def test_schedule_sync_handles_server_errors(self):
+        """
+        When Consular is set to schedule syncs, syncs should not be interrupted
+        due to errors in previously scheduled syncs.
+        """
+        lc, d = self.consular.schedule_sync(1)
+
+        self.assertTrue(lc.running)
+
+        # Consular should do the first sync right away
+        request = yield self.requests.get()
+        self.assertEqual(request['method'], 'GET')
+        self.assertEqual(
+            request['url'],
+            'http://localhost:8080/v2/apps')
+
+        # Return a server error.
+        request['deferred'].callback(FakeResponse(500, [], 'Server error'))
+
+        # Advance the clock for the next sync
+        self.consular.clock.advance(1)
+
+        # The next sync should happen regardless of the previous server error
+        request = yield self.requests.get()
+        self.assertEqual(request['method'], 'GET')
+        self.assertEqual(
+            request['url'],
+            'http://localhost:8080/v2/apps')
+
+        request['deferred'].callback(
+            FakeResponse(200, [], json.dumps({'apps': []})))
+
+        lc.stop()
+        yield d
+
+    @inlineCallbacks
     def test_register_with_marathon(self):
         d = self.consular.register_marathon_event_callback(
             'http://localhost:7000/events?registration=the-uuid')
