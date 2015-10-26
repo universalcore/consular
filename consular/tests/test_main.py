@@ -187,6 +187,25 @@ class ConsularTest(TestCase):
             "version": "2014-04-04T06:26:23.051Z"
         })
 
+        # Store the task as a service in Consul
+        consul_request = yield self.requests.get()
+        self.assertEqual(consul_request['method'], 'PUT')
+        self.assertEqual(
+            consul_request['url'],
+            'http://slave-1234.acme.org:8500/v1/agent/service/register')
+        self.assertEqual(consul_request['data'], json.dumps({
+            'Name': 'my-app',
+            'ID': 'my-app_0-1396592784349',
+            'Address': 'slave-1234.acme.org',
+            'Port': 31372,
+            'Tags': [
+                'consular-reg-id=test',
+                'consular-app-id=/my-app',
+            ],
+        }))
+        consul_request['deferred'].callback(
+            FakeResponse(200, [], json.dumps({})))
+
         # We should get the app info for the event
         marathon_app_request = yield self.requests.get()
         self.assertEqual(marathon_app_request['method'], 'GET')
@@ -207,37 +226,6 @@ class ConsularTest(TestCase):
         consul_kv_request['deferred'].callback(
             FakeResponse(200, [], json.dumps([])))
 
-        # Then we collect the tasks for the app
-        marathon_tasks_request = yield self.requests.get()
-        self.assertEqual(marathon_tasks_request['method'], 'GET')
-        self.assertEqual(marathon_tasks_request['url'],
-                         'http://localhost:8080/v2/apps/my-app/tasks')
-        marathon_tasks_request['deferred'].callback(
-            FakeResponse(200, [], json.dumps({
-                'tasks': [{
-                    'id': 'my-app_0-1396592784349',
-                    'host': 'slave-1234.acme.org',
-                    'ports': [31372],
-                }]
-            })))
-
-        request = yield self.requests.get()
-        self.assertEqual(request['method'], 'PUT')
-        self.assertEqual(
-            request['url'],
-            'http://slave-1234.acme.org:8500/v1/agent/service/register')
-        self.assertEqual(request['data'], json.dumps({
-            'Name': 'my-app',
-            'ID': 'my-app_0-1396592784349',
-            'Address': 'slave-1234.acme.org',
-            'Port': 31372,
-            'Tags': [
-                'consular-reg-id=test',
-                'consular-app-id=/my-app',
-            ],
-        }))
-        request['deferred'].callback(
-            FakeResponse(200, [], json.dumps({})))
         response = yield d
         self.assertEqual((yield response.json()), {
             'status': 'ok'

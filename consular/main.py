@@ -222,13 +222,18 @@ class Consular(object):
             'status': 'ok'
         }))
 
+    @inlineCallbacks
     def update_task_running(self, request, event):
-        # NOTE: Marathon sends a list of ports, I don't know yet when & if
-        #       there are multiple values in that list.
-        d = self.marathon_client.get_app(event['appId'])
-        d.addCallback(lambda app: self.sync_app(app))
-        d.addCallback(lambda _: json.dumps({'status': 'ok'}))
-        return d
+        """ Use a running event to register a new Consul service. """
+        # Register the task as a service
+        yield self.register_task_service(
+            event['appId'], event['taskId'], event['host'], event['ports'][0])
+
+        # Sync the app labels in case they've changed or aren't stored yet
+        app = yield self.marathon_client.get_app(event['appId'])
+        yield self.sync_app_labels(app)
+
+        returnValue(json.dumps({'status': 'ok'}))
 
     def update_task_killed(self, request, event):
         d = self.deregister_task_service(event['taskId'], event['host'])
