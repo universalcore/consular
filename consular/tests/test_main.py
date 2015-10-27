@@ -193,7 +193,7 @@ class ConsularTest(TestCase):
         self.assertEqual(
             consul_request['url'],
             'http://slave-1234.acme.org:8500/v1/agent/service/register')
-        self.assertEqual(consul_request['data'], json.dumps({
+        self.assertEqual(json.loads(consul_request['data']), {
             'Name': 'my-app',
             'ID': 'my-app_0-1396592784349',
             'Address': 'slave-1234.acme.org',
@@ -202,7 +202,7 @@ class ConsularTest(TestCase):
                 'consular-reg-id=test',
                 'consular-app-id=/my-app',
             ],
-        }))
+        })
         consul_request['deferred'].callback(
             FakeResponse(200, [], json.dumps({})))
 
@@ -251,7 +251,7 @@ class ConsularTest(TestCase):
         self.assertEqual(
             consul_request['url'],
             'http://slave-1234.acme.org:8500/v1/agent/service/register')
-        self.assertEqual(consul_request['data'], json.dumps({
+        self.assertEqual(json.loads(consul_request['data']), {
             'Name': 'my-app',
             'ID': 'my-app_0-1396592784349',
             'Address': 'slave-1234.acme.org',
@@ -260,7 +260,7 @@ class ConsularTest(TestCase):
                 'consular-reg-id=test',
                 'consular-app-id=/my-app',
             ],
-        }))
+        })
         consul_request['deferred'].callback(
             FakeResponse(200, [], json.dumps({})))
 
@@ -303,7 +303,7 @@ class ConsularTest(TestCase):
         self.assertEqual(
             consul_request['url'],
             'http://slave-1234.acme.org:8500/v1/agent/service/register')
-        self.assertEqual(consul_request['data'], json.dumps({
+        self.assertEqual(json.loads(consul_request['data']), {
             'Name': 'my-app',
             'ID': 'my-app_0-1396592784349',
             'Address': 'slave-1234.acme.org',
@@ -311,7 +311,7 @@ class ConsularTest(TestCase):
                 'consular-reg-id=test',
                 'consular-app-id=/my-app',
             ],
-        }))
+        })
         consul_request['deferred'].callback(
             FakeResponse(200, [], json.dumps({})))
 
@@ -365,7 +365,7 @@ class ConsularTest(TestCase):
         self.assertEqual(
             consul_request['url'],
             'http://slave-1234.acme.org:8500/v1/agent/service/register')
-        self.assertEqual(consul_request['data'], json.dumps({
+        self.assertEqual(json.loads(consul_request['data']), {
             'Name': 'my-app',
             'ID': 'my-app_0-1396592784349',
             'Address': 'slave-1234.acme.org',
@@ -374,7 +374,7 @@ class ConsularTest(TestCase):
                 'consular-reg-id=test',
                 'consular-app-id=/my-app',
             ],
-        }))
+        })
         consul_request['deferred'].callback(
             FakeResponse(200, [], json.dumps({})))
 
@@ -589,7 +589,7 @@ class ConsularTest(TestCase):
         self.assertEqual(
             consul_request['url'],
             'http://0.0.0.0:8500/v1/agent/service/register')
-        self.assertEqual(consul_request['data'], json.dumps({
+        self.assertEqual(json.loads(consul_request['data']), {
             'Name': 'my-app',
             'ID': 'my-task-id',
             'Address': '0.0.0.0',
@@ -598,7 +598,7 @@ class ConsularTest(TestCase):
                 'consular-reg-id=test',
                 'consular-app-id=/my-app',
             ],
-        }))
+        })
         self.assertEqual(consul_request['method'], 'PUT')
         consul_request['deferred'].callback(
             FakeResponse(200, [], json.dumps({})))
@@ -632,7 +632,7 @@ class ConsularTest(TestCase):
         self.assertEqual(
             consul_request['url'],
             'http://0.0.0.0:8500/v1/agent/service/register')
-        self.assertEqual(consul_request['data'], json.dumps({
+        self.assertEqual(json.loads(consul_request['data']), {
             'Name': 'my-group-my-app',
             'ID': 'my-task-id',
             'Address': '0.0.0.0',
@@ -641,7 +641,7 @@ class ConsularTest(TestCase):
                 'consular-reg-id=test',
                 'consular-app-id=/my-group/my-app',
             ],
-        }))
+        })
         self.assertEqual(consul_request['method'], 'PUT')
         consul_request['deferred'].callback(
             FakeResponse(200, [], json.dumps({})))
@@ -675,7 +675,7 @@ class ConsularTest(TestCase):
         self.assertEqual(
             consul_request['url'],
             'http://0.0.0.0:8500/v1/agent/service/register')
-        self.assertEqual(consul_request['data'], json.dumps({
+        self.assertEqual(json.loads(consul_request['data']), {
             'Name': 'my-app',
             'ID': 'my-task-id',
             'Address': '0.0.0.0',
@@ -683,7 +683,7 @@ class ConsularTest(TestCase):
                 'consular-reg-id=test',
                 'consular-app-id=/my-app',
             ],
-        }))
+        })
         self.assertEqual(consul_request['method'], 'PUT')
         consul_request['deferred'].callback(
             FakeResponse(200, [], json.dumps({})))
@@ -721,7 +721,7 @@ class ConsularTest(TestCase):
         self.assertEqual(
             consul_request['url'],
             'http://0.0.0.0:8500/v1/agent/service/register')
-        self.assertEqual(consul_request['data'], json.dumps({
+        self.assertEqual(json.loads(consul_request['data']), {
             'Name': 'my-app',
             'ID': 'my-task-id',
             'Address': '0.0.0.0',
@@ -730,7 +730,7 @@ class ConsularTest(TestCase):
                 'consular-reg-id=test',
                 'consular-app-id=/my-app',
             ],
-        }))
+        })
         self.assertEqual(consul_request['method'], 'PUT')
         consul_request['deferred'].callback(
             FakeResponse(200, [], json.dumps({})))
@@ -1334,7 +1334,7 @@ class ConsularTest(TestCase):
         self.assertEqual(
             fallback_request['url'],
             'http://localhost:8500/v1/agent/service/register')
-        self.assertEqual(fallback_request['data'], json.dumps({
+        self.assertEqual(json.loads(fallback_request['data']), {
             'Name': 'app_id',
             'ID': 'service_id',
             'Address': 'foo',
@@ -1343,4 +1343,4 @@ class ConsularTest(TestCase):
                 'consular-reg-id=test',
                 'consular-app-id=/app_id',
             ],
-        }))
+        })
