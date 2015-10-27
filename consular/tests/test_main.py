@@ -280,6 +280,67 @@ class ConsularTest(TestCase):
         })
 
     @inlineCallbacks
+    def test_TASK_RUNNING_no_ports(self):
+        """
+        When a TASK_RUNNING event is received from Marathon, and the task has
+        no ports, the task should be registered as a service in Consul.
+        """
+        d = self.request('POST', '/events', {
+            "eventType": "status_update_event",
+            "timestamp": "2014-03-01T23:29:30.158Z",
+            "slaveId": "20140909-054127-177048842-5050-1494-0",
+            "taskId": "my-app_0-1396592784349",
+            "taskStatus": "TASK_RUNNING",
+            "appId": "/my-app",
+            "host": "slave-1234.acme.org",
+            "ports": [],
+            "version": "2014-04-04T06:26:23.051Z"
+        })
+
+        # Store the task as a service in Consul with no port
+        consul_request = yield self.requests.get()
+        self.assertEqual(consul_request['method'], 'PUT')
+        self.assertEqual(
+            consul_request['url'],
+            'http://slave-1234.acme.org:8500/v1/agent/service/register')
+        self.assertEqual(consul_request['data'], json.dumps({
+            'Name': 'my-app',
+            'ID': 'my-app_0-1396592784349',
+            'Address': 'slave-1234.acme.org',
+            'Tags': [
+                'consular-reg-id=test',
+                'consular-app-id=/my-app',
+            ],
+        }))
+        consul_request['deferred'].callback(
+            FakeResponse(200, [], json.dumps({})))
+
+        # We should get the app info for the event
+        marathon_app_request = yield self.requests.get()
+        self.assertEqual(marathon_app_request['method'], 'GET')
+        self.assertEqual(marathon_app_request['url'],
+                         'http://localhost:8080/v2/apps/my-app')
+        marathon_app_request['deferred'].callback(
+            FakeResponse(200, [], json.dumps({
+                'app': {
+                    'id': '/my-app',
+                }
+            })))
+
+        # Check if any existing labels stored in Consul
+        consul_kv_request = yield self.requests.get()
+        self.assertEqual(consul_kv_request['method'], 'GET')
+        self.assertEqual(consul_kv_request['url'],
+                         'http://localhost:8500/v1/kv/consular/my-app?keys=')
+        consul_kv_request['deferred'].callback(
+            FakeResponse(200, [], json.dumps([])))
+
+        response = yield d
+        self.assertEqual((yield response.json()), {
+            'status': 'ok'
+        })
+
+    @inlineCallbacks
     def test_TASK_KILLED(self):
         d = self.request('POST', '/events', {
             "eventType": "status_update_event",
@@ -481,7 +542,7 @@ class ConsularTest(TestCase):
         yield d
 
     @inlineCallbacks
-    def test_sync_app_task_grouped(self):
+    def test_sync_app_tasks_grouped(self):
         """
         When syncing an app in a group with a task, Consul is updated with a
         service entry for the task.
@@ -516,6 +577,48 @@ class ConsularTest(TestCase):
             'Tags': [
                 'consular-reg-id=test',
                 'consular-app-id=/my-group/my-app',
+            ],
+        }))
+        self.assertEqual(consul_request['method'], 'PUT')
+        consul_request['deferred'].callback(
+            FakeResponse(200, [], json.dumps({})))
+        yield d
+
+    @inlineCallbacks
+    def test_sync_app_tasks_no_ports(self):
+        """
+        When syncing an app with a task with no ports, Consul is updated with a
+        service entry for the task.
+        """
+        d = self.consular.sync_app_tasks({'id': '/my-app'})
+
+        # First Consular fetches the tasks for the app
+        marathon_request = yield self.requests.get()
+        self.assertEqual(marathon_request['method'], 'GET')
+        self.assertEqual(
+            marathon_request['url'],
+            'http://localhost:8080/v2/apps/my-app/tasks')
+
+        # Respond with one task
+        marathon_request['deferred'].callback(
+            FakeResponse(200, [], json.dumps({
+                'tasks': [
+                    {'id': 'my-task-id', 'host': '0.0.0.0', 'ports': []}
+                ]}))
+        )
+
+        # Consular should register the task in Consul with no port
+        consul_request = yield self.requests.get()
+        self.assertEqual(
+            consul_request['url'],
+            'http://0.0.0.0:8500/v1/agent/service/register')
+        self.assertEqual(consul_request['data'], json.dumps({
+            'Name': 'my-app',
+            'ID': 'my-task-id',
+            'Address': '0.0.0.0',
+            'Tags': [
+                'consular-reg-id=test',
+                'consular-app-id=/my-app',
             ],
         }))
         self.assertEqual(consul_request['method'], 'PUT')
