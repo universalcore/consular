@@ -1210,7 +1210,7 @@ class ConsularTest(TestCase):
     def test_fallback_to_main_consul(self):
         self.consular.consul_client.enable_fallback = True
         self.consular.register_task_service(
-            '/app_id', 'service_id', 'foo', 1234)
+            '/app_id', 'service_id', 'foo', [1234])
         request = yield self.requests.get()
         self.assertEqual(
             request['url'],
