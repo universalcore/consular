@@ -222,19 +222,30 @@ class Consular(object):
             'status': 'ok'
         }))
 
+    @inlineCallbacks
     def update_task_running(self, request, event):
-        # NOTE: Marathon sends a list of ports, I don't know yet when & if
-        #       there are multiple values in that list.
-        d = self.marathon_client.get_app(event['appId'])
-        d.addCallback(lambda app: self.sync_app(app))
-        d.addCallback(lambda _: json.dumps({'status': 'ok'}))
-        return d
+        """ Use a running event to register a new Consul service. """
+        # Register the task as a service
+        yield self.register_task_service(
+            event['appId'], event['taskId'], event['host'], event['ports'][0])
+
+        # Sync the app labels in case they've changed or aren't stored yet
+        app = yield handle_not_found_error(
+            self.marathon_client.get_app, event['appId'])
+
+        # The app could have disappeared in this time if it was destroyed. If
+        # it has been destroyed, do nothing and wait for the TASK_KILLED event
+        # to clear it.
+        if app is not None:
+            yield self.sync_app_labels(app)
+        else:
+            log.msg('Warning. App with ID "%s" could not be found for new '
+                    'task with ID "%s"' % (event['appId'], event['taskId'],))
+
+        returnValue(json.dumps({'status': 'ok'}))
 
     def update_task_killed(self, request, event):
-        d = self.deregister_service(
-            get_agent_endpoint(event['host']),
-            get_app_name(event['appId']),
-            event['taskId'])
+        d = self.deregister_task_service(event['taskId'], event['host'])
         d.addCallback(lambda _: json.dumps({'status': 'ok'}))
         return d
 
@@ -297,45 +308,51 @@ class Consular(object):
         }
         return registration
 
-    def register_service(self, agent_endpoint,
-                         app_id, service_id, address, port):
+    def register_task_service(self, app_id, task_id, host, port):
         """
-        Register a task in Marathon as a service in Consul
+        Register a Marathon task as a service in Consul.
 
-        :param str agent_endpoint:
-            The HTTP endpoint of where Consul on the Mesos worker machine
-            can be accessed.
         :param str app_id:
-            Marathon's App-id for the task.
-        :param str service_id:
-            The service-id to register it as in Consul.
-        :param str address:
+            The ID of the Marathon app that the task belongs to.
+        :param str task_id:
+            The ID of the task, this will be used as the Consul service ID.
+        :param str host:
             The host address of the machine the task is running on.
         :param int port:
             The port number the task can be accessed on on the host machine.
         """
+        agent_endpoint = get_agent_endpoint(host)
         log.msg('Registering %s at %s with %s at %s:%s.' % (
-            app_id, agent_endpoint, service_id, address, port))
-        registration = self._create_service_registration(app_id, service_id,
-                                                         address, port)
+            app_id, agent_endpoint, task_id, host, port))
+        registration = self._create_service_registration(app_id, task_id,
+                                                         host, port)
 
         return self.consul_client.register_agent_service(
             agent_endpoint, registration)
 
-    def deregister_service(self, agent_endpoint, app_id, service_id):
+    def deregister_task_service(self, task_id, host):
         """
-        Deregister a service from Consul
+        Deregister a Marathon task's service from Consul.
+
+        :param str task_id:
+            The ID of the task, this will be used as the Consul service ID.
+        :param str host:
+            The host address of the machine the task is running on.
+        """
+        return self.deregister_consul_service(
+            get_agent_endpoint(host), task_id)
+
+    def deregister_consul_service(self, agent_endpoint, service_id):
+        """
+        Deregister a service from a Consul agent.
 
         :param str agent_endpoint:
-            The HTTP endpoint of where Consul on the Mesos worker machine
-            can be accessed.
-        :param str app_id:
-            Marathon's App-id for the task.
+            The HTTP endpoint of the Consul agent.
         :param str service_id:
-            The service-id to register it as in Consul.
+            The ID of the Consul service to be deregistered.
         """
-        log.msg('Deregistering %s at %s with %s' % (
-            app_id, agent_endpoint, service_id,))
+        log.msg('Deregistering service with ID "%s" at Consul endpoint %s ' % (
+            service_id, agent_endpoint,))
         return self.consul_client.deregister_agent_service(
             agent_endpoint, service_id)
 
@@ -501,12 +518,8 @@ class Consular(object):
     def sync_app_tasks(self, app):
         tasks = yield self.marathon_client.get_app_tasks(app['id'])
         for task in tasks:
-            yield self.sync_app_task(app, task)
-
-    def sync_app_task(self, app, task):
-        return self.register_service(
-            get_agent_endpoint(task['host']), app['id'], task['id'],
-            task['host'], task['ports'][0])
+            yield self.register_task_service(
+                app['id'], task['id'], task['host'], task['ports'][0])
 
     @inlineCallbacks
     def purge_dead_app_labels(self, apps):
@@ -606,7 +619,7 @@ class Consular(object):
 
         # Deregister the remaining old services
         for service_id in service_ids:
-            yield self.deregister_service(agent_endpoint, app_id, service_id)
+            yield self.deregister_consul_service(agent_endpoint, service_id)
 
     def _filter_marathon_tasks(self, marathon_tasks, consul_service_ids):
         if not marathon_tasks:
