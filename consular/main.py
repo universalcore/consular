@@ -227,7 +227,7 @@ class Consular(object):
         """ Use a running event to register a new Consul service. """
         # Register the task as a service
         yield self.register_task_service(
-            event['appId'], event['taskId'], event['host'], event['ports'][0])
+            event['appId'], event['taskId'], event['host'], event['ports'])
 
         # Sync the app labels in case they've changed or aren't stored yet
         app = yield handle_not_found_error(
@@ -300,15 +300,17 @@ class Consular(object):
             'Name': get_app_name(app_id),
             'ID': service_id,
             'Address': address,
-            'Port': port,
             'Tags': [
                 self.reg_id_tag(),
                 self.app_id_tag(app_id),
             ]
         }
+        if port is not None:
+            registration['Port'] = port
+
         return registration
 
-    def register_task_service(self, app_id, task_id, host, port):
+    def register_task_service(self, app_id, task_id, host, ports):
         """
         Register a Marathon task as a service in Consul.
 
@@ -318,9 +320,20 @@ class Consular(object):
             The ID of the task, this will be used as the Consul service ID.
         :param str host:
             The host address of the machine the task is running on.
-        :param int port:
-            The port number the task can be accessed on on the host machine.
+        :param list ports:
+            The port numbers the task can be accessed on on the host machine.
         """
+        if not ports:
+            port = None
+        elif len(ports) == 1:
+            [port] = ports
+        else:
+            # TODO: Support multiple ports (issue #29)
+            port = min(ports)
+            log.msg('Warning. %d ports found for app "%s". Consular currently '
+                    'only supports a single port. Only the lowest port (%s) '
+                    'will be used.' % (len(ports), app_id, port,))
+
         agent_endpoint = get_agent_endpoint(host)
         log.msg('Registering %s at %s with %s at %s:%s.' % (
             app_id, agent_endpoint, task_id, host, port))
@@ -519,7 +532,7 @@ class Consular(object):
         tasks = yield self.marathon_client.get_app_tasks(app['id'])
         for task in tasks:
             yield self.register_task_service(
-                app['id'], task['id'], task['host'], task['ports'][0])
+                app['id'], task['id'], task['host'], task['ports'])
 
     @inlineCallbacks
     def purge_dead_app_labels(self, apps):
