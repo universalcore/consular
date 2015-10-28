@@ -329,7 +329,7 @@ class Consular(object):
             [port] = ports
         else:
             # TODO: Support multiple ports (issue #29)
-            port = sorted(ports)[0]
+            port = min(ports)
             log.msg('Warning. %d ports found for app "%s". Consular currently '
                     'only supports a single port. Only the lowest port (%s) '
                     'will be used.' % (len(ports), app_id, port,))
