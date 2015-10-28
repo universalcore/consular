@@ -54,15 +54,14 @@ def main(scheme, host, port,
          sync_interval, purge, logfile, debug, timeout,
          fallback, fallback_timeout):  # pragma: no cover
     from consular.main import Consular
-    from twisted.internet.task import LoopingCall
     from twisted.internet import reactor
     from twisted.python import log
 
     log.startLogging(logfile)
 
     consular = Consular(consul, marathon, fallback, registration_id)
-    consular.debug = debug
-    consular.timeout = timeout
+    consular.set_debug(debug)
+    consular.set_timeout(timeout)
     consular.fallback_timeout = fallback_timeout
     events_url = "%s://%s:%s/events?%s" % (
         scheme, host, port,
@@ -72,8 +71,7 @@ def main(scheme, host, port,
     consular.register_marathon_event_callback(events_url)
 
     if sync_interval > 0:
-        lc = LoopingCall(consular.sync_apps, purge)
-        lc.start(sync_interval, now=True)
+        consular.schedule_sync(sync_interval, purge)
 
     consular.run(host, port)
     reactor.run()

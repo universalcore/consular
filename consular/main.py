@@ -1,16 +1,14 @@
 import json
 
-from urllib import quote, urlencode
+from consular.clients import ConsulClient, MarathonClient, HTTPError
+
 from twisted.internet import reactor
-from twisted.web import client, server
-# Twisted's fault HTTP11 client factory is way too verbose
-client._HTTP11ClientFactory.noisy = False
-from twisted.internet.defer import (
-    succeed, inlineCallbacks, returnValue, gatherResults)
+from twisted.web import server
+from twisted.internet.defer import succeed, inlineCallbacks, returnValue
+from twisted.internet.task import LoopingCall
+from twisted.web.http import NOT_FOUND
 from twisted.python import log
 
-
-import treq
 from klein import Klein
 
 
@@ -24,6 +22,28 @@ def get_app_name(app_id):
 
 def get_agent_endpoint(host):
     return 'http://%s:8500' % (host,)
+
+
+@inlineCallbacks
+def handle_not_found_error(f, *args, **kwargs):
+    """
+    Perform a request and catch the not found (404) error if one occurs.
+
+    :param: f: The function to call to perform the request. The function may
+        return a deferred.
+    :param: args: The arguments to call the function with.
+    :param: kwargs: The keyword arguments to call the function with.
+    :returns: The return value of the function call or None if there was a 404
+        response code.
+    """
+    try:
+        response = yield f(*args, **kwargs)
+    except HTTPError as e:
+        if e.response.code == NOT_FOUND:
+            response = None
+        else:
+            raise e
+    returnValue(response)
 
 
 class ConsularSite(server.Site):
@@ -51,22 +71,30 @@ class Consular(object):
     """
 
     app = Klein()
-    debug = False
+    _debug = False
     clock = reactor
-    timeout = 5
-    fallback_timeout = 2
-    requester = lambda self, *a, **kw: treq.request(*a, **kw)
 
     def __init__(self, consul_endpoint, marathon_endpoint, enable_fallback,
                  registration_id):
-        self.consul_endpoint = consul_endpoint
-        self.marathon_endpoint = marathon_endpoint
-        self.pool = client.HTTPConnectionPool(self.clock, persistent=False)
-        self.enable_fallback = enable_fallback
+        self.consul_client = ConsulClient(consul_endpoint, enable_fallback)
+        self.marathon_client = MarathonClient(marathon_endpoint)
         self.registration_id = registration_id
         self.event_dispatch = {
             'status_update_event': self.handle_status_update_event,
         }
+
+    def set_debug(self, debug):
+        self._debug = debug
+        self.consul_client.debug = debug
+        self.marathon_client.debug = debug
+
+    def set_timeout(self, timeout):
+        self.consul_client.timeout = timeout
+        self.marathon_client.timeout = timeout
+
+    def set_requester(self, requester):
+        self.consul_client.requester = requester
+        self.marathon_client.requester = requester
 
     def run(self, host, port):
         """
@@ -78,36 +106,36 @@ class Consular(object):
             The port to listen on (example is ``7000``)
         """
         site = ConsularSite(self.app.resource())
-        site.debug = self.debug
+        site.debug = self._debug
         self.clock.listenTCP(port, site, interface=host)
 
-    def get_marathon_event_callbacks(self):
-        d = self.marathon_request('GET', '/v2/eventSubscriptions')
-        d.addErrback(log.err)
-        d.addCallback(lambda response: response.json())
-        d.addCallback(self.get_marathon_event_callbacks_from_json)
-        return d
+    def schedule_sync(self, interval, purge=False):
+        """
+        Schedule a recurring sync of apps, starting after this method is
+        called.
 
-    def get_marathon_event_callbacks_from_json(self, json):
-        # NOTE:
-        # Marathon may return a bad response when we get the existing event
-        # callbacks. A common cause for this is that Marathon is not properly
-        # configured. Raise an exception with information from Marathon if this
-        # is the case, else return the callback URLs from the JSON response.
-        if 'callbackUrls' not in json:
-            raise RuntimeError('Unable to get existing event callbacks from ' +
-                               'Marathon: %r' % (str(json),))
+        :param float interval:
+            The number of seconds between syncs.
+        :param bool purge:
+            Whether to purge old apps after each sync.
+        :return:
+            A tuple of the LoopingCall object and the deferred created when it
+            was started.
+        """
+        lc = LoopingCall(self._try_sync_apps, purge)
+        lc.clock = self.clock
+        return (lc, lc.start(interval, now=True))
 
-        return json['callbackUrls']
-
-    def create_marathon_event_callback(self, url):
-        d = self.marathon_request(
-            'POST', '/v2/eventSubscriptions?%s' % urlencode({
-                'callbackUrl': url,
-            }))
-        d.addErrback(log.err)
-        d.addCallback(lambda response: response.code == 200)
-        return d
+    @inlineCallbacks
+    def _try_sync_apps(self, purge=False):
+        """
+        Sync the apps, catching and logging any exception that occurs.
+        """
+        try:
+            yield self.sync_apps(purge)
+        except Exception as e:
+            # TODO: More specialised exception handling.
+            log.msg('Error syncing apps: %s' % e)
 
     @inlineCallbacks
     def register_marathon_event_callback(self, events_url):
@@ -123,53 +151,21 @@ class Consular(object):
             https://mesosphere.github.io/marathon/docs/event-bus.html
             #configuration
         """
-        existing_callbacks = yield self.get_marathon_event_callbacks()
+        existing_callbacks = (
+            yield self.marathon_client.get_event_subscriptions())
         already_registered = any(
             [events_url == url for url in existing_callbacks])
         if already_registered:
             log.msg('Consular event callback already registered.')
             returnValue(True)
 
-        registered = yield self.create_marathon_event_callback(events_url)
+        registered = (
+            yield self.marathon_client.post_event_subscription(events_url))
         if registered:
             log.msg('Consular event callback registered.')
         else:
             log.err('Consular event callback registration failed.')
         returnValue(registered)
-
-    def log_http_response(self, response, method, path, data):
-        log.msg('%s %s with %s returned: %s' % (
-            method, path, data, response.code))
-        return response
-
-    def log_http_error(self, failure, url):
-        log.err(failure, 'Error performing request to %s' % (url,))
-        return failure
-
-    def marathon_request(self, method, path, data=None):
-        return self._request(
-            method, '%s%s' % (self.marathon_endpoint, path), data)
-
-    def consul_request(self, method, url, data=None):
-        return self._request(method, url, data, timeout=self.fallback_timeout)
-
-    def _request(self, method, url, data, timeout=None):
-        d = self.requester(
-            method,
-            url.encode('utf-8'),
-            headers={
-                'Content-Type': 'application/json',
-                'Accept': 'application/json',
-            },
-            data=(json.dumps(data) if data is not None else None),
-            pool=self.pool,
-            timeout=timeout or self.timeout)
-
-        if self.debug:
-            d.addCallback(self.log_http_response, method, url, data)
-
-        d.addErrback(self.log_http_error, url)
-        return d
 
     @app.route('/')
     def index(self, request):
@@ -226,19 +222,30 @@ class Consular(object):
             'status': 'ok'
         }))
 
+    @inlineCallbacks
     def update_task_running(self, request, event):
-        # NOTE: Marathon sends a list of ports, I don't know yet when & if
-        #       there are multiple values in that list.
-        d = self.get_app(event['appId'])
-        d.addCallback(lambda app: self.sync_app(app))
-        d.addCallback(lambda _: json.dumps({'status': 'ok'}))
-        return d
+        """ Use a running event to register a new Consul service. """
+        # Register the task as a service
+        yield self.register_task_service(
+            event['appId'], event['taskId'], event['host'], event['ports'])
+
+        # Sync the app labels in case they've changed or aren't stored yet
+        app = yield handle_not_found_error(
+            self.marathon_client.get_app, event['appId'])
+
+        # The app could have disappeared in this time if it was destroyed. If
+        # it has been destroyed, do nothing and wait for the TASK_KILLED event
+        # to clear it.
+        if app is not None:
+            yield self.sync_app_labels(app)
+        else:
+            log.msg('Warning. App with ID "%s" could not be found for new '
+                    'task with ID "%s"' % (event['appId'], event['taskId'],))
+
+        returnValue(json.dumps({'status': 'ok'}))
 
     def update_task_killed(self, request, event):
-        d = self.deregister_service(
-            get_agent_endpoint(event['host']),
-            get_app_name(event['appId']),
-            event['taskId'])
+        d = self.deregister_task_service(event['taskId'], event['host'])
         d.addCallback(lambda _: json.dumps({'status': 'ok'}))
         return d
 
@@ -293,70 +300,76 @@ class Consular(object):
             'Name': get_app_name(app_id),
             'ID': service_id,
             'Address': address,
-            'Port': port,
             'Tags': [
                 self.reg_id_tag(),
                 self.app_id_tag(app_id),
             ]
         }
+        if port is not None:
+            registration['Port'] = port
+
         return registration
 
-    def register_service(self, agent_endpoint,
-                         app_id, service_id, address, port):
+    def register_task_service(self, app_id, task_id, host, ports):
         """
-        Register a task in Marathon as a service in Consul
+        Register a Marathon task as a service in Consul.
 
-        :param str agent_endpoint:
-            The HTTP endpoint of where Consul on the Mesos worker machine
-            can be accessed.
         :param str app_id:
-            Marathon's App-id for the task.
-        :param str service_id:
-            The service-id to register it as in Consul.
-        :param str address:
+            The ID of the Marathon app that the task belongs to.
+        :param str task_id:
+            The ID of the task, this will be used as the Consul service ID.
+        :param str host:
             The host address of the machine the task is running on.
-        :param int port:
-            The port number the task can be accessed on on the host machine.
+        :param list ports:
+            The port numbers the task can be accessed on on the host machine.
         """
+        if not ports:
+            port = None
+        elif len(ports) == 1:
+            [port] = ports
+        else:
+            # TODO: Support multiple ports (issue #29)
+            port = min(ports)
+            log.msg('Warning. %d ports found for app "%s". Consular currently '
+                    'only supports a single port. Only the lowest port (%s) '
+                    'will be used.' % (len(ports), app_id, port,))
+
+        agent_endpoint = get_agent_endpoint(host)
         log.msg('Registering %s at %s with %s at %s:%s.' % (
-            app_id, agent_endpoint, service_id, address, port))
-        registration = self._create_service_registration(app_id, service_id,
-                                                         address, port)
+            app_id, agent_endpoint, task_id, host, port))
+        registration = self._create_service_registration(app_id, task_id,
+                                                         host, port)
 
-        d = self.consul_request(
-            'PUT',
-            '%s/v1/agent/service/register' % (agent_endpoint,),
-            registration)
-        if self.enable_fallback:
-            d.addErrback(self.register_service_fallback, registration)
-        return d
+        return self.consul_client.register_agent_service(
+            agent_endpoint, registration)
 
-    def register_service_fallback(self, failure, registration):
-        log.msg('Falling back for %s at %s.' % (
-            registration['Name'], self.consul_endpoint))
-        return self.consul_request(
-            'PUT',
-            '%s/v1/agent/service/register' % (self.consul_endpoint,),
-            registration)
-
-    def deregister_service(self, agent_endpoint, app_id, service_id):
+    def deregister_task_service(self, task_id, host):
         """
-        Deregister a service from Consul
+        Deregister a Marathon task's service from Consul.
+
+        :param str task_id:
+            The ID of the task, this will be used as the Consul service ID.
+        :param str host:
+            The host address of the machine the task is running on.
+        """
+        return self.deregister_consul_service(
+            get_agent_endpoint(host), task_id)
+
+    def deregister_consul_service(self, agent_endpoint, service_id):
+        """
+        Deregister a service from a Consul agent.
 
         :param str agent_endpoint:
-            The HTTP endpoint of where Consul on the Mesos worker machine
-            can be accessed.
-        :param str app_id:
-            Marathon's App-id for the task.
+            The HTTP endpoint of the Consul agent.
         :param str service_id:
-            The service-id to register it as in Consul.
+            The ID of the Consul service to be deregistered.
         """
-        log.msg('Deregistering %s at %s with %s' % (
-            app_id, agent_endpoint, service_id,))
-        return self.consul_request(
-            'PUT', '%s/v1/agent/service/deregister/%s' % (
-                agent_endpoint, service_id,))
+        log.msg('Deregistering service with ID "%s" at Consul endpoint %s ' % (
+            service_id, agent_endpoint,))
+        return self.consul_client.deregister_agent_service(
+            agent_endpoint, service_id)
 
+    @inlineCallbacks
     def sync_apps(self, purge=False):
         """
         Ensure all the apps in Marathon are registered as services
@@ -369,66 +382,220 @@ class Consular(object):
         :param bool purge:
             To purge or not to purge.
         """
-        d = self.marathon_request('GET', '/v2/apps')
-        d.addCallback(lambda response: response.json())
-        d.addCallback(
-            lambda data: gatherResults(
-                [self.sync_app(app) for app in data['apps']]))
+        log.msg('Syncing apps')
+        apps = yield self.marathon_client.get_apps()
+
+        self.check_apps_namespace_clash(apps)
+
+        for app in apps:
+            yield self.sync_app(app)
+
         if purge:
-            d.addCallback(lambda _: self.purge_dead_services())
-        return d
+            log.msg('Purging dead apps')
+            yield self.purge_dead_apps(apps)
 
-    def get_app(self, app_id):
-        d = self.marathon_request('GET', '/v2/apps%s' % (app_id,))
-        d.addCallback(lambda response: response.json())
-        d.addCallback(lambda data: data['app'])
-        return d
+    def check_apps_namespace_clash(self, apps):
+        """
+        Checks if app names in Marathon will cause a namespace clash in Consul.
+        Throws an exception if there is a collision, else returns the apps.
 
+        :param: apps:
+            The JSON list of apps from Marathon's API.
+        """
+        # Collect the app name to app id(s) mapping.
+        name_ids = {}
+        for app in apps:
+            app_id = app['id']
+            app_name = get_app_name(app_id)
+            name_ids.setdefault(app_name, []).append(app_id)
+
+        # Check if any app names map to more than one app id.
+        collisions = {name: ids
+                      for name, ids in name_ids.items() if len(ids) > 1}
+
+        if collisions:
+            collisions_string = '\n'.join(sorted(
+                ['%s => %s' % (name, ', '.join(ids),)
+                 for name, ids in collisions.items()]))
+            raise RuntimeError(
+                'The following Consul service name(s) will resolve to '
+                'multiple Marathon app names: \n%s' % (collisions_string,))
+
+        return apps
+
+    @inlineCallbacks
     def sync_app(self, app):
-        return gatherResults([
-            self.sync_app_labels(app),
-            self.sync_app_tasks(app),
-            ])
+        yield self.sync_app_labels(app)
+        yield self.sync_app_tasks(app)
 
+    @inlineCallbacks
+    def purge_dead_apps(self, apps):
+        yield self.purge_dead_services()
+        yield self.purge_dead_app_labels(apps)
+
+    @inlineCallbacks
     def sync_app_labels(self, app):
-        labels = app.get('labels', {})
+        """
+        Sync the app labels for the given app by pushing its labels to the
+        Consul k/v store and cleaning any labels there that are no longer
+        present.
+
+        :param: app:
+            The app JSON as return by the Marathon HTTP API.
+        """
         # NOTE: KV requests can go straight to the consul registry
         #       we're already connected to, they're not local to the agents.
-        return gatherResults([
-            self.consul_request(
-                'PUT', '%s/v1/kv/consular/%s/%s' % (
-                    self.consul_endpoint,
-                    quote(get_app_name(app['id'])), quote(key)), value)
-            for key, value in labels.items()
-        ])
+        app_name = get_app_name(app['id'])
+        labels = app.get('labels', {})
+        yield self.put_consul_app_labels(app_name, labels)
+        yield self.clean_consul_app_labels(app_name, labels)
 
+    def put_consul_app_labels(self, app_name, labels):
+        """
+        Store the given set of labels under the given app name in the Consul
+        k/v store.
+        """
+        return self.put_consul_kvs({'consular/%s/%s' % (app_name, key,): value
+                                    for key, value in labels.items()})
+
+    @inlineCallbacks
+    def put_consul_kvs(self, key_values):
+        """ Store the given key/value set in the Consul k/v store. """
+        for key, value in key_values.items():
+            yield self.consul_client.put_kv(key, value)
+
+    @inlineCallbacks
+    def clean_consul_app_labels(self, app_name, labels):
+        """
+        Delete app labels stored in the Consul k/v store under the given app
+        name that aren't present in the given set of labels.
+        """
+        # Get the existing labels from Consul
+        if self._debug:
+            log.msg('Cleaning labels no longer in use by app "%s"' % app_name)
+
+        keys = yield handle_not_found_error(self.get_consul_app_keys, app_name)
+        if keys is None:
+            log.msg('No keys found in Consul for service "%s"' % app_name)
+            return
+
+        if self._debug:
+            log.msg('%d labels stored in Marathon, %d keys found in Consul '
+                    'for app "%s"' % (len(labels), len(keys), app_name))
+
+        # Filter out the Marathon labels
+        keys = self._filter_marathon_labels(keys, labels)
+
+        if self._debug:
+            log.msg('%d keys to be deleted from Consul for app %s' % (
+                len(keys), app_name))
+
+        # Delete the non-existant keys
+        for key in keys:
+            yield self.consul_client.delete_kv_keys(key)
+
+    def get_consul_app_keys(self, app_name):
+        """ Get the Consul k/v keys for the app with the given name. """
+        return self.consul_client.get_kv_keys('consular/%s' % (app_name,))
+
+    def get_consul_consular_keys(self):
+        """
+        Get the next level of Consul k/v keys at 'consular/', i.e. will
+        return 'consular/my-app' but not 'consular/my-app/my-label'.
+        """
+        return self.consul_client.get_kv_keys('consular/', separator='/')
+
+    def _filter_marathon_labels(self, consul_keys, marathon_labels):
+        """
+        Takes a list of Consul keys and removes those with keys not found in
+        the given dict of Marathon labels.
+
+        :param: consul_keys:
+            The list of Consul keys as returned by the Consul API.
+        :param: marathon_labels:
+            The dict of Marathon labels as returned by the Marathon API.
+        """
+        label_key_set = set(marathon_labels.keys())
+        return [key for key in consul_keys
+                if (self._consul_key_to_marathon_label_key(key)
+                    not in label_key_set)]
+
+    def _consul_key_to_marathon_label_key(self, consul_key):
+        """
+        Trims the 'consular/<app_name>/' from the front of the key path to get
+        the Marathon label key.
+        """
+        return consul_key.split('/', 2)[-1]
+
+    @inlineCallbacks
     def sync_app_tasks(self, app):
-        d = self.marathon_request('GET', '/v2/apps%(id)s/tasks' % app)
-        d.addCallback(lambda response: response.json())
-        d.addCallback(lambda data: gatherResults(
-            self.sync_app_task(app, task) for task in data['tasks']))
-        return d
+        tasks = yield self.marathon_client.get_app_tasks(app['id'])
+        for task in tasks:
+            yield self.register_task_service(
+                app['id'], task['id'], task['host'], task['ports'])
 
-    def sync_app_task(self, app, task):
-        return self.register_service(
-            get_agent_endpoint(task['host']), app['id'], task['id'],
-            task['host'], task['ports'][0])
+    @inlineCallbacks
+    def purge_dead_app_labels(self, apps):
+        """
+        Delete any keys stored in the Consul k/v store that belong to apps that
+        no longer exist.
 
+        :param: apps:
+            The list of apps as returned by the Marathon API.
+        """
+        log.msg('Purging dead app labels')
+        # Get the existing keys
+        keys = yield handle_not_found_error(self.get_consul_consular_keys)
+        if keys is None:
+            log.msg('No Consular keys found in Consul')
+            return
+
+        if self._debug:
+            log.msg('Got %d keys from Consul' % len(keys))
+
+        # Filter the present apps out
+        keys = self._filter_marathon_apps(keys, apps)
+
+        if self._debug:
+            log.msg('After filtering out running apps, %d Consul keys remain '
+                    'to be purged' % len(keys))
+
+        # Delete the remaining keys
+        for key in keys:
+            yield self.consul_client.delete_kv_keys(key, recurse=True)
+
+    def _filter_marathon_apps(self, consul_keys, marathon_apps):
+        """
+        Takes a list of Consul keys and removes those with keys not found in
+        the given list of Marathon apps.
+
+        :param: consul_keys:
+            The list of Consul keys as returned by the Consul API.
+        :param: marathon_apps:
+            The list of apps as returned by the Marathon API.
+        """
+        app_name_set = set([get_app_name(app['id']) for app in marathon_apps])
+        return [key for key in consul_keys
+                if (self._consul_key_to_marathon_app_name(key)
+                    not in app_name_set)]
+
+    def _consul_key_to_marathon_app_name(self, consul_key):
+        """
+        Trims the 'consular/' from the front of the key path to get the
+        Marathon app name.
+        """
+        return consul_key.split('/', 1)[-1].strip('/')
+
+    @inlineCallbacks
     def purge_dead_services(self):
-        d = self.consul_request(
-            'GET', '%s/v1/catalog/nodes' % (self.consul_endpoint,))
-        d.addCallback(lambda response: response.json())
-        d.addCallback(lambda data: gatherResults([
+        nodes = yield self.consul_client.get_catalog_nodes()
+        for node in nodes:
             self.purge_dead_agent_services(
-                get_agent_endpoint(node['Address'])) for node in data
-        ]))
-        return d
+                get_agent_endpoint(node['Address']))
 
     @inlineCallbacks
     def purge_dead_agent_services(self, agent_endpoint):
-        response = yield self.consul_request(
-            'GET', '%s/v1/agent/services' % (agent_endpoint,))
-        data = yield response.json()
+        data = yield self.consul_client.get_agent_services(agent_endpoint)
 
         # collect the task ids for the service name
         services = {}
@@ -443,7 +610,7 @@ class Consular(object):
                     log.msg('Service "%s" does not have an app ID in its '
                             'tags, it cannot be purged.'
                             % (service['Service'],))
-            elif self.debug:
+            elif self._debug:
                 log.msg('Service "%s" is not tagged with our registration ID, '
                         'not touching it.' % (service['Service'],))
 
@@ -452,13 +619,25 @@ class Consular(object):
 
     @inlineCallbacks
     def purge_service_if_dead(self, agent_endpoint, app_id, consul_task_ids):
-        response = yield self.marathon_request(
-            'GET', '/v2/apps%s/tasks' % (app_id,))
-        data = yield response.json()
-        tasks_to_be_purged = set(consul_task_ids)
-        if 'tasks' in data:
-            marathon_task_ids = set([task['id'] for task in data['tasks']])
-            tasks_to_be_purged -= marathon_task_ids
+        # Get the running tasks for the app (don't raise an error if the tasks
+        # are not found)
+        tasks = yield handle_not_found_error(
+            self.marathon_client.get_app_tasks, app_id)
+        if tasks is None:
+            log.msg('No tasks found in Marathon for app ID "%s"' % app_id)
+            tasks = []
 
-        for task_id in tasks_to_be_purged:
-            yield self.deregister_service(agent_endpoint, app_id, task_id)
+        # Remove the running tasks from the set of Consul services
+        service_ids = self._filter_marathon_tasks(tasks, consul_task_ids)
+
+        # Deregister the remaining old services
+        for service_id in service_ids:
+            yield self.deregister_consul_service(agent_endpoint, service_id)
+
+    def _filter_marathon_tasks(self, marathon_tasks, consul_service_ids):
+        if not marathon_tasks:
+            return consul_service_ids
+
+        task_id_set = set([task['id'] for task in marathon_tasks])
+        return [service_id for service_id in consul_service_ids
+                if service_id not in task_id_set]

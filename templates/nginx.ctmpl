@@ -7,7 +7,7 @@
 #       Nginx. If the key does not exist the service isn't added to the
 #       list of services in the Nginx config.
 
-{{range services}}{{$labels = ls (print "consular/" .Name) | explode }}{{if $labels.domain}}
+{{range services}}{{$labels := ls (print "consular/" .Name) | explode }}{{if $labels.domain}}
 
 upstream {{.Name}} {
   {{range service .Name }}server {{.Address}}:{{.Port}};
