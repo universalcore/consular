@@ -35,6 +35,9 @@ class JsonClientTestBase(TestCase):
         request.write(json.dumps(json_data))
         request.finish()
 
+    def uri(self, path):
+        return '%s%s' % (self.client.endpoint, path,)
+
 
 class JsonClientTest(JsonClientTestBase):
 
@@ -52,7 +55,7 @@ class JsonClientTest(JsonClientTestBase):
 
         request = yield self.requests.get()
         self.assertEqual(request.method, 'GET')
-        self.assertEqual(request.uri, 'http://localhost:8000/hello')
+        self.assertEqual(request.uri, self.uri('/hello'))
         self.assertEqual(request.getHeader('content-type'), 'application/json')
         self.assertEqual(request.getHeader('accept'), 'application/json')
         self.assertEqual(request.content.read(), '')
@@ -75,7 +78,7 @@ class JsonClientTest(JsonClientTestBase):
 
         request = yield self.requests.get()
         self.assertEqual(request.method, 'GET')
-        self.assertEqual(request.uri, 'http://localhost:8000/hello')
+        self.assertEqual(request.uri, self.uri('/hello'))
         self.assertEqual(json.load(request.content), {'test': 'hello'})
 
         request.setResponseCode(200)
@@ -111,7 +114,7 @@ class JsonClientTest(JsonClientTestBase):
 
         request = yield self.requests.get()
         self.assertEqual(request.method, 'GET')
-        self.assertEqual(request.uri, 'http://localhost:8000/hello')
+        self.assertEqual(request.uri, self.uri('/hello'))
 
         request.setResponseCode(200)
         request.write(json.dumps({'test': 'hello'}))
@@ -130,7 +133,7 @@ class JsonClientTest(JsonClientTestBase):
 
         request = yield self.requests.get()
         self.assertEqual(request.method, 'GET')
-        self.assertEqual(request.uri, 'http://localhost:8000/hello')
+        self.assertEqual(request.uri, self.uri('/hello'))
 
         request.setResponseCode(403)
         request.write('Unauthorized\n')
@@ -140,7 +143,7 @@ class JsonClientTest(JsonClientTestBase):
         failure = self.failureResultOf(d, HTTPError)
         self.assertEqual(
             failure.getErrorMessage(),
-            '403 Client Error for url: http://localhost:8000/hello')
+            '403 Client Error for url: %s' % self.uri('/hello'))
 
     @inlineCallbacks
     def test_server_error_response(self):
@@ -152,7 +155,7 @@ class JsonClientTest(JsonClientTestBase):
 
         request = yield self.requests.get()
         self.assertEqual(request.method, 'GET')
-        self.assertEqual(request.uri, 'http://localhost:8000/hello')
+        self.assertEqual(request.uri, self.uri('/hello'))
 
         request.setResponseCode(502)
         request.write('Bad gateway\n')
@@ -162,7 +165,7 @@ class JsonClientTest(JsonClientTestBase):
         failure = self.failureResultOf(d, HTTPError)
         self.assertEqual(
             failure.getErrorMessage(),
-            '502 Server Error for url: http://localhost:8000/hello')
+            '502 Server Error for url: %s' % self.uri('/hello'))
 
 
 class ConsulClientTest(JsonClientTestBase):
