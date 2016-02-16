@@ -1,5 +1,6 @@
 from urllib import quote, urlencode
 import json
+import treq
 
 from twisted.internet import reactor
 from twisted.python import log
@@ -9,15 +10,12 @@ from twisted.web.http import OK
 # Twisted's default HTTP11 client factory is way too verbose
 client._HTTP11ClientFactory.noisy = False
 
-import treq
-
 
 class JsonClient(object):
     debug = False
     clock = reactor
     timeout = 5
     agent = None
-    requester = lambda self, *a, **kw: treq.request(*a, **kw)
 
     def __init__(self, endpoint):
         """
@@ -25,6 +23,9 @@ class JsonClient(object):
         """
         self.endpoint = endpoint
         self.pool = client.HTTPConnectionPool(self.clock, persistent=False)
+
+    def requester(self, *args, **kwargs):
+        return treq.request(*args, **kwargs)
 
     def _log_http_response(self, response, method, path, data):
         log.msg('%s %s with %s returned: %s' % (
