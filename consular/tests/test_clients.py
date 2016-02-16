@@ -7,7 +7,7 @@ from twisted.web.server import NOT_DONE_YET
 from txfake import FakeHttpServer
 from txfake.fake_connection import wait0
 
-from consular.clients import HTTPError, JsonClient
+from consular.clients import HTTPError, JsonClient, MarathonClient
 
 
 class JsonClientTestBase(TestCase):
@@ -165,3 +165,257 @@ class JsonClientTest(JsonClientTestBase):
         self.assertEqual(
             failure.getErrorMessage(),
             '502 Server Error for url: %s' % self.uri('/hello'))
+
+
+class MarathonClientTest(JsonClientTestBase):
+    def get_client(self):
+        return MarathonClient('http://localhost:8080')
+
+    @inlineCallbacks
+    def test_get_event_subscription(self):
+        """
+        When we request event subscriptions from Marathon, we should receive a
+        list of callback URLs.
+        """
+        d = self.client.get_event_subscriptions()
+
+        request = yield self.requests.get()
+        self.assertEqual(request.method, 'GET')
+        self.assertEqual(request.uri, self.uri('/v2/eventSubscriptions'))
+
+        self.write_json_response(request, {
+            'callbackUrls': [
+                'http://localhost:7000/events?registration=localhost'
+            ]
+        })
+
+        res = yield d
+        self.assertEqual(res, [
+            'http://localhost:7000/events?registration=localhost'
+        ])
+
+    @inlineCallbacks
+    def test_post_event_subscription(self):
+        """
+        When we post an event subscription with a callback URL, we should
+        return True for a 200/OK response from Marathon.
+        """
+        d = self.client.post_event_subscription(
+            'http://localhost:7000/events?registration=localhost')
+
+        request = yield self.requests.get()
+        self.assertEqual(request.method, 'POST')
+        self.assertEqual(request.path, self.uri('/v2/eventSubscriptions'))
+        self.assertEqual(request.args, {
+            'callbackUrl': [
+                'http://localhost:7000/events?registration=localhost'
+            ]
+        })
+
+        self.write_json_response(request, {
+            # TODO: Add check that callbackUrl is correct
+            'callbackUrl':
+                'http://localhost:7000/events?registration=localhost',
+            'clientIp': '0:0:0:0:0:0:0:1',
+            'eventType': 'subscribe_event'
+        })
+
+        res = yield d
+        self.assertEqual(res, True)
+
+    @inlineCallbacks
+    def test_post_event_subscription_not_ok(self):
+        """
+        When we post an event subscription with a callback URL, we should
+        return False for a non-200/OK response from Marathon.
+        """
+        d = self.client.post_event_subscription(
+            'http://localhost:7000/events?registration=localhost')
+
+        request = yield self.requests.get()
+        self.assertEqual(request.method, 'POST')
+        self.assertEqual(request.path, self.uri('/v2/eventSubscriptions'))
+        self.assertEqual(request.args, {
+            'callbackUrl': [
+                'http://localhost:7000/events?registration=localhost'
+            ]
+        })
+
+        self.write_json_response(request, {}, response_code=201)
+
+        res = yield d
+        self.assertEqual(res, False)
+
+    @inlineCallbacks
+    def test_get_apps(self):
+        """
+        When we request the list of apps from Marathon, we should receive the
+        list of apps with some information.
+        """
+        d = self.client.get_apps()
+
+        request = yield self.requests.get()
+        self.assertEqual(request.method, 'GET')
+        self.assertEqual(request.uri, self.uri('/v2/apps'))
+
+        apps = {
+            'apps': [
+                {
+                    'id': '/product/us-east/service/myapp',
+                    'cmd': 'env && sleep 60',
+                    'constraints': [
+                        [
+                            'hostname',
+                            'UNIQUE',
+                            ''
+                        ]
+                    ],
+                    'container': None,
+                    'cpus': 0.1,
+                    'env': {
+                        'LD_LIBRARY_PATH': '/usr/local/lib/myLib'
+                    },
+                    'executor': '',
+                    'instances': 3,
+                    'mem': 5.0,
+                    'ports': [
+                        15092,
+                        14566
+                    ],
+                    'tasksRunning': 0,
+                    'tasksStaged': 1,
+                    'uris': [
+                        'https://raw.github.com/mesosphere/marathon/master/'
+                        'README.md'
+                    ],
+                    'version': '2014-03-01T23:42:20.938Z'
+                }
+            ]
+        }
+        self.write_json_response(request, apps)
+
+        res = yield d
+        self.assertEqual(res, apps['apps'])
+
+    @inlineCallbacks
+    def test_get_app(self):
+        """
+        When we request information on a specific app from Marathon, we should
+        receive information on that app.
+        """
+        d = self.client.get_app('/my-app')
+
+        request = yield self.requests.get()
+        self.assertEqual(request.method, 'GET')
+        self.assertEqual(request.uri, self.uri('/v2/apps/my-app'))
+
+        app = {
+            'app': {
+                'args': None,
+                'backoffFactor': 1.15,
+                'backoffSeconds': 1,
+                'maxLaunchDelaySeconds': 3600,
+                'cmd': 'python toggle.py $PORT0',
+                'constraints': [],
+                'container': None,
+                'cpus': 0.2,
+                'dependencies': [],
+                'deployments': [
+                    {
+                        'id': '44c4ed48-ee53-4e0f-82dc-4df8b2a69057'
+                    }
+                ],
+                'disk': 0.0,
+                'env': {},
+                'executor': '',
+                'healthChecks': [
+                    {
+                        'command': None,
+                        'gracePeriodSeconds': 5,
+                        'intervalSeconds': 10,
+                        'maxConsecutiveFailures': 3,
+                        'path': '/health',
+                        'portIndex': 0,
+                        'protocol': 'HTTP',
+                        'timeoutSeconds': 10
+                    },
+                    {
+                        'command': None,
+                        'gracePeriodSeconds': 5,
+                        'intervalSeconds': 10,
+                        'maxConsecutiveFailures': 6,
+                        'path': '/machinehealth',
+                        'overridePort': 3333,
+                        'protocol': 'HTTP',
+                        'timeoutSeconds': 10
+                    }
+                ],
+                'id': '/my-app',
+                'instances': 2,
+                'mem': 32.0,
+                'ports': [
+                    10000
+                ],
+                'requirePorts': False,
+                'storeUrls': [],
+                'upgradeStrategy': {
+                    'minimumHealthCapacity': 1.0
+                },
+                'uris': [
+                    'http://downloads.mesosphere.com/misc/toggle.tgz'
+                ],
+                'user': None,
+                'version': '2014-09-12T23:28:21.737Z',
+                'versionInfo': {
+                    'lastConfigChangeAt': '2014-09-11T02:26:01.135Z',
+                    'lastScalingAt': '2014-09-12T23:28:21.737Z'
+                }
+            }
+        }
+        self.write_json_response(request, app)
+
+        res = yield d
+        self.assertEqual(res, app['app'])
+
+    @inlineCallbacks
+    def test_get_app_tasks(self):
+        """
+        When we request the list of tasks for an app from Marathon, we should
+        receive a list of app tasks.
+        """
+        d = self.client.get_app_tasks('/my-app')
+
+        request = yield self.requests.get()
+        self.assertEqual(request.method, 'GET')
+        self.assertEqual(request.uri, self.uri('/v2/apps/my-app/tasks'))
+
+        tasks = {
+            'tasks': [
+                {
+                    'host': 'agouti.local',
+                    'id': 'my-app_1-1396592790353',
+                    'ports': [
+                        31336,
+                        31337
+                    ],
+                    'stagedAt': '2014-04-04T06:26:30.355Z',
+                    'startedAt': '2014-04-04T06:26:30.860Z',
+                    'version': '2014-04-04T06:26:23.051Z'
+                },
+                {
+                    'host': 'agouti.local',
+                    'id': 'my-app_0-1396592784349',
+                    'ports': [
+                        31382,
+                        31383
+                    ],
+                    'stagedAt': '2014-04-04T06:26:24.351Z',
+                    'startedAt': '2014-04-04T06:26:24.919Z',
+                    'version': '2014-04-04T06:26:23.051Z'
+                }
+            ]
+        }
+        self.write_json_response(request, tasks)
+
+        res = yield d
+        self.assertEqual(res, tasks['tasks'])
