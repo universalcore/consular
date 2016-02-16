@@ -25,6 +25,7 @@ class JsonClientTestBase(TestCase):
 
     def get_client(self):
         """To be implemented by subclass"""
+        raise NotImplementedError()
 
     def write_json_response(self, request, json_data, response_code=200,
                             headers={'Content-Type': 'application/json'}):
