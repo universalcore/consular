@@ -166,13 +166,3 @@ class JsonClientTest(JsonClientTestBase):
         self.assertEqual(
             failure.getErrorMessage(),
             '502 Server Error for url: %s' % self.uri('/hello'))
-
-
-class ConsulClientTest(JsonClientTestBase):
-    def get_client(self):
-        return ConsulClient('http://localhost:8500')
-
-
-class MarathonClientTest(JsonClientTestBase):
-    def get_client(self):
-        return MarathonClient('http://localhost:8080')
