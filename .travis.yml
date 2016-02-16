@@ -3,7 +3,6 @@ python:
   - "2.7"
 matrix:
   include:
-    - python: "2.7"
     - python: "pypy"
       env: PYPY_VERSION="4.0.1" NO_COVERAGE=1
 cache:
