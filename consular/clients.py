@@ -121,7 +121,7 @@ class HTTPError(IOError):
 
 class MarathonClient(JsonClient):
 
-    def _basic_get_request(self, path, field):
+    def get_json_field(self, path, field):
         """
         Perform a GET request and get the contents of the JSON response.
 
@@ -153,7 +153,7 @@ class MarathonClient(JsonClient):
         Get the current Marathon event subscriptions, returning a list of
         callback URLs.
         """
-        return self._basic_get_request(
+        return self.get_json_field(
             '/v2/eventSubscriptions', 'callbackUrls')
 
     def post_event_subscription(self, callback_url):
@@ -171,20 +171,20 @@ class MarathonClient(JsonClient):
         Get the currently running Marathon apps, returning a list of app
         definitions.
         """
-        return self._basic_get_request('/v2/apps', 'apps')
+        return self.get_json_field('/v2/apps', 'apps')
 
     def get_app(self, app_id):
         """
         Get information about the app with the given app ID.
         """
-        return self._basic_get_request('/v2/apps%s' % (app_id,), 'app')
+        return self.get_json_field('/v2/apps%s' % (app_id,), 'app')
 
     def get_app_tasks(self, app_id):
         """
         Get the currently running tasks for the app with the given app ID,
         returning a list of task definitions.
         """
-        return self._basic_get_request('/v2/apps%s/tasks' % (app_id,), 'tasks')
+        return self.get_json_field('/v2/apps%s/tasks' % (app_id,), 'tasks')
 
 
 class ConsulClient(JsonClient):
