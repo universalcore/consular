@@ -16,6 +16,7 @@ class JsonClient(object):
     debug = False
     clock = reactor
     timeout = 5
+    agent = None
     requester = lambda self, *a, **kw: treq.request(*a, **kw)
 
     def __init__(self, endpoint):
@@ -66,6 +67,7 @@ class JsonClient(object):
             },
             'data': data,
             'pool': self.pool,
+            'agent': self.agent,
             'timeout': self.timeout
         }
         requester_kwargs.update(kwargs)
