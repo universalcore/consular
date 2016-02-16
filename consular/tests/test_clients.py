@@ -7,8 +7,7 @@ from twisted.web.server import NOT_DONE_YET
 from txfake import FakeHttpServer
 from txfake.fake_connection import wait0
 
-from consular.clients import (
-    ConsulClient, HTTPError, JsonClient, MarathonClient)
+from consular.clients import HTTPError, JsonClient
 
 
 class JsonClientTestBase(TestCase):
