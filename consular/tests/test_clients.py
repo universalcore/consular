@@ -172,6 +172,49 @@ class MarathonClientTest(JsonClientTestBase):
         return MarathonClient('http://localhost:8080')
 
     @inlineCallbacks
+    def test_get_json_field(self):
+        """
+        When get_json_field is used to make a request, the response is
+        deserialized from JSON and the value of the specified field is
+        returned.
+        """
+        d = self.client.get_json_field('/my-path', 'field-key')
+
+        request = yield self.requests.get()
+        self.assertEqual(request.method, 'GET')
+        self.assertEqual(request.uri, self.uri('/my-path'))
+
+        self.write_json_response(request, {
+            'field-key': 'field-value',
+            'other-field-key': 'do-not-care'
+        })
+
+        res = yield d
+        self.assertEqual(res, 'field-value')
+
+    @inlineCallbacks
+    def test_get_json_field_missing(self):
+        """
+        When get_json_field is used to make a request, the response is
+        deserialized from JSON and if the specified field is missing, an error
+        is raised.
+        """
+        d = self.client.get_json_field('/my-path', 'field-key')
+
+        request = yield self.requests.get()
+        self.assertEqual(request.method, 'GET')
+        self.assertEqual(request.uri, self.uri('/my-path'))
+
+        self.write_json_response(request, {'other-field-key': 'do-not-care'})
+
+        yield wait0()
+        failure = self.failureResultOf(d, KeyError)
+        self.assertEqual(
+            failure.getErrorMessage(),
+            '\'Unable to get value for "field-key" from Marathon response: '
+            '"{"other-field-key": "do-not-care"}"\'')
+
+    @inlineCallbacks
     def test_get_event_subscription(self):
         """
         When we request event subscriptions from Marathon, we should receive a
