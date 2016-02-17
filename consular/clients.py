@@ -269,8 +269,8 @@ class ConsulClient(JsonClient):
         :param: recurse:
             Whether or not to recursively delete all subpaths of the key.
         """
-        return self.request('DELETE', '/v1/kv/%s%s' % (
-            quote(key), '?recurse' if recurse else '',))
+        query = '?recurse' if recurse else ''
+        return self.request('DELETE', '/v1/kv/%s%s' % (quote(key), query,))
 
     def get_catalog_nodes(self):
         """

@@ -7,7 +7,8 @@ from twisted.web.server import NOT_DONE_YET
 from txfake import FakeHttpServer
 from txfake.fake_connection import wait0
 
-from consular.clients import HTTPError, JsonClient, MarathonClient
+from consular.clients import (
+    ConsulClient, HTTPError, JsonClient, MarathonClient)
 
 
 class JsonClientTestBase(TestCase):
@@ -462,3 +463,205 @@ class MarathonClientTest(JsonClientTestBase):
 
         res = yield d
         self.assertEqual(res, tasks['tasks'])
+
+
+class ConsulClientTest(JsonClientTestBase):
+    def get_client(self):
+        return ConsulClient('http://localhost:8500')
+
+    @inlineCallbacks
+    def test_register_agent_service(self):
+        registration = {
+            'ID': 'redis1',
+            'Name': 'redis',
+            'Tags': [
+                'master',
+                'v1'
+            ],
+            'Address': '127.0.0.1',
+            'Port': 8000,
+            'Check': {
+                'Script': '/usr/local/bin/check_redis.py',
+                'HTTP': 'http://localhost:5000/health',
+                'Interval': '10s',
+                'TTL': '15s'
+            }
+        }
+        d = self.client.register_agent_service('http://foo.example.com:8500',
+                                               registration)
+
+        request = yield self.requests.get()
+        self.assertEqual(request.method, 'PUT')
+        self.assertEqual(
+            request.uri,
+            'http://foo.example.com:8500/v1/agent/service/register')
+        self.assertEqual(json.load(request.content), registration)
+
+        request.setResponseCode(200)
+        request.finish()
+
+        yield d
+
+    @inlineCallbacks
+    def test_deregister_agent_service(self):
+        d = self.client.deregister_agent_service('http://foo.example.com:8500',
+                                                 'redis1')
+
+        request = yield self.requests.get()
+        self.assertEqual(request.method, 'PUT')
+        self.assertEqual(
+            request.uri,
+            'http://foo.example.com:8500/v1/agent/service/deregister/redis1')
+
+        request.setResponseCode(200)
+        request.finish()
+
+        yield d
+
+    @inlineCallbacks
+    def test_put_kv(self):
+        d = self.client.put_kv('foo', {'bar': 'baz'})
+
+        request = yield self.requests.get()
+        self.assertEqual(request.method, 'PUT')
+        self.assertEqual(request.uri, self.uri('/v1/kv/foo'))
+        self.assertEqual(json.load(request.content), {'bar': 'baz'})
+
+        request.setResponseCode(200)
+        request.write('true')
+        request.finish()
+
+        res = yield d
+        json_res = yield res.json()
+        self.assertEqual(json_res, True)
+
+    # TODO: Consul returns False. What should we do?
+
+    @inlineCallbacks
+    def test_get_kv_keys(self):
+        d = self.client.get_kv_keys('foo')
+
+        request = yield self.requests.get()
+        self.assertEqual(request.method, 'GET')
+        self.assertEqual(request.path, self.uri('/v1/kv/foo'))
+        self.assertEqual(request.args, {
+            'keys': ['']
+        })
+
+        keys = [
+            '/foo/bar',
+            '/foo/baz/boo'
+        ]
+        request.setResponseCode(200)
+        request.write(json.dumps(keys))
+        request.finish()
+
+        res = yield d
+        self.assertEqual(res, keys)
+
+    @inlineCallbacks
+    def test_get_kv_keys_separator(self):
+        d = self.client.get_kv_keys('foo', separator='/')
+
+        request = yield self.requests.get()
+        self.assertEqual(request.method, 'GET')
+        self.assertEqual(request.path, self.uri('/v1/kv/foo'))
+        self.assertEqual(request.args, {
+            'keys': [''],
+            'separator': ['/']
+        })
+
+        keys = [
+            '/foo/bar',
+            '/foo/baz/'
+        ]
+        request.setResponseCode(200)
+        request.write(json.dumps(keys))
+        request.finish()
+
+        res = yield d
+        self.assertEqual(res, keys)
+
+    @inlineCallbacks
+    def test_delete_kv_keys(self):
+        d = self.client.delete_kv_keys('foo')
+        print d
+        #self.assertTrue(False)
+
+        request = yield self.requests.get()
+        self.assertTrue(False)
+        self.assertEqual(request.method, 'PUT')
+        self.assertEqual(request.uri, self.uri('/v1/kv/foo'))
+
+        request.setResponseCode(200)
+        request.finish()
+
+        self.assertTrue(False)
+
+        yield d
+#
+#    @inlineCallbacks
+#    def test_delete_kv_keys_recursive(self):
+#        d = self.client.delete_kv_keys('foo', recurse=True)
+#
+#        request = yield self.requests.get()
+#        self.assertEqual(request.method, 'DELETE')
+#        self.assertEqual(request.path, self.uri('/v1/kv/foo'))
+#        self.assertEqual(request.args, {
+#            'recurse': []
+#        })
+#
+#        request.setResponseCode(200)
+#        request.finish()
+#
+#        yield d
+
+    @inlineCallbacks
+    def test_get_catalog_nodes(self):
+        d = self.client.get_catalog_nodes()
+
+        request = yield self.requests.get()
+        self.assertEqual(request.method, 'GET')
+        self.assertEqual(request.uri, self.uri('/v1/catalog/nodes'))
+
+        nodes = [
+            {
+                'Node': 'baz',
+                'Address': '10.1.10.11'
+            },
+            {
+                'Node': 'foobar',
+                'Address': '10.1.10.12'
+            }
+        ]
+        request.setResponseCode(200)
+        request.write(json.dumps(nodes))
+        request.finish()
+
+        res = yield d
+        self.assertEqual(res, nodes)
+
+    @inlineCallbacks
+    def test_get_agent_services(self):
+        d = self.client.get_agent_services('http://foo.example.com:8500')
+
+        request = yield self.requests.get()
+        self.assertEqual(request.method, 'GET')
+        self.assertEqual(request.uri,
+                         'http://foo.example.com:8500/v1/agent/services')
+
+        services = {
+            'redis': {
+                'ID': 'redis',
+                'Service': 'redis',
+                'Tags': None,
+                'Address': 'http://foo.example.com',
+                'Port': 8000
+            }
+        }
+        request.setResponseCode(200)
+        request.write(json.dumps(services))
+        request.finish()
+
+        res = yield d
+        self.assertEqual(res, services)
