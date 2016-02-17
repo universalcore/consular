@@ -585,36 +585,32 @@ class ConsulClientTest(JsonClientTestBase):
     @inlineCallbacks
     def test_delete_kv_keys(self):
         d = self.client.delete_kv_keys('foo')
-        print d
-        #self.assertTrue(False)
 
         request = yield self.requests.get()
-        self.assertTrue(False)
-        self.assertEqual(request.method, 'PUT')
+        self.assertEqual(request.method, 'DELETE')
         self.assertEqual(request.uri, self.uri('/v1/kv/foo'))
 
         request.setResponseCode(200)
         request.finish()
 
-        self.assertTrue(False)
+        yield d
+
+    @inlineCallbacks
+    def test_delete_kv_keys_recursive(self):
+        d = self.client.delete_kv_keys('foo', recurse=True)
+
+        request = yield self.requests.get()
+        self.assertEqual(request.method, 'DELETE')
+        self.assertEqual(request.uri, self.uri('/v1/kv/foo?recurse'))
+        # request.args == {} :'(
+        # self.assertEqual(request.args, {
+        #     'recurse': []
+        # })
+
+        request.setResponseCode(200)
+        request.finish()
 
         yield d
-#
-#    @inlineCallbacks
-#    def test_delete_kv_keys_recursive(self):
-#        d = self.client.delete_kv_keys('foo', recurse=True)
-#
-#        request = yield self.requests.get()
-#        self.assertEqual(request.method, 'DELETE')
-#        self.assertEqual(request.path, self.uri('/v1/kv/foo'))
-#        self.assertEqual(request.args, {
-#            'recurse': []
-#        })
-#
-#        request.setResponseCode(200)
-#        request.finish()
-#
-#        yield d
 
     @inlineCallbacks
     def test_get_catalog_nodes(self):
