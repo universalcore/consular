@@ -61,8 +61,10 @@ class JsonClient(object):
             Any other parameters that will be passed to `treq.request`, for
             example headers or parameters.
         """
-        scheme, authority = (urisplit(endpoint)[:2] if endpoint is not None
-                             else self.endpoint[:2])
+        if endpoint is not None:
+            scheme, authority = urisplit(endpoint)[:2]
+        else:
+            scheme, authority = self.endpoint[:2]
         url = uricompose(scheme, authority, path, query)
 
         data = json.dumps(json_data) if json_data else None
