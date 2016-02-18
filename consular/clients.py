@@ -214,11 +214,11 @@ class ConsulClient(JsonClient):
                          endpoint=agent_endpoint, json_data=registration)
 
         if self.enable_fallback:
-            d.addErrback(self.register_agent_service_fallback, registration)
+            d.addErrback(self._register_agent_service_fallback, registration)
 
         return d
 
-    def register_agent_service_fallback(self, failure, registration):
+    def _register_agent_service_fallback(self, failure, registration):
         """
         Fallback to the default agent endpoint (`self.endpoint`) to register
         a Consul service.
@@ -269,8 +269,8 @@ class ConsulClient(JsonClient):
         :param: recurse:
             Whether or not to recursively delete all subpaths of the key.
         """
-        return self.request('DELETE', '/v1/kv/%s%s' % (
-            quote(key), '?recurse' if recurse else '',))
+        query = '?recurse' if recurse else ''
+        return self.request('DELETE', '/v1/kv/%s%s' % (quote(key), query,))
 
     def get_catalog_nodes(self):
         """
