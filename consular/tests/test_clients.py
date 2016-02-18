@@ -7,6 +7,8 @@ from twisted.web.server import NOT_DONE_YET
 from txfake import FakeHttpServer
 from txfake.fake_connection import wait0
 
+from uritools import urisplit
+
 from consular.clients import (
     ConsulClient, HTTPError, JsonClient, MarathonClient)
 
@@ -37,6 +39,14 @@ class JsonClientTestBase(TestCase):
 
     def uri(self, path):
         return '%s%s' % (self.client.endpoint, path,)
+
+    def parse_query(self, uri):
+        """
+        When Twisted parses "args" from the URI, it leaves out query parameters
+        that have no value. In those cases we rather use uritools to parse the
+        query parameters.
+        """
+        return urisplit(uri).getquerydict()
 
 
 class JsonClientTest(JsonClientTestBase):
@@ -604,8 +614,8 @@ class ConsulClientTest(JsonClientTestBase):
         request = yield self.requests.get()
         self.assertEqual(request.method, 'GET')
         self.assertEqual(request.path, self.uri('/v1/kv/foo'))
-        self.assertEqual(request.args, {
-            'keys': ['']
+        self.assertEqual(self.parse_query(request.uri), {
+            'keys': [None]
         })
 
         keys = [
@@ -631,8 +641,8 @@ class ConsulClientTest(JsonClientTestBase):
         request = yield self.requests.get()
         self.assertEqual(request.method, 'GET')
         self.assertEqual(request.path, self.uri('/v1/kv/foo'))
-        self.assertEqual(request.args, {
-            'keys': [''],
+        self.assertEqual(self.parse_query(request.uri), {
+            'keys': [None],
             'separator': ['/']
         })
 
@@ -674,11 +684,10 @@ class ConsulClientTest(JsonClientTestBase):
 
         request = yield self.requests.get()
         self.assertEqual(request.method, 'DELETE')
-        self.assertEqual(request.uri, self.uri('/v1/kv/foo?recurse'))
-        # request.args == {} :'(
-        # self.assertEqual(request.args, {
-        #     'recurse': []
-        # })
+        self.assertEqual(request.path, self.uri('/v1/kv/foo'))
+        self.assertEqual(self.parse_query(request.uri), {
+            'recurse': [None]
+        })
 
         request.setResponseCode(200)
         request.finish()
