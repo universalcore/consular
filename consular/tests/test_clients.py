@@ -38,7 +38,7 @@ class JsonClientTestBase(TestCase):
         request.finish()
 
     def uri(self, path):
-        return '%s%s' % (self.client.endpoint, path,)
+        return '%s%s' % (self.client.endpoint.geturi(), path,)
 
     def parse_query(self, uri):
         """
@@ -501,8 +501,7 @@ class ConsulClientTest(JsonClientTestBase):
                 'TTL': '15s'
             }
         }
-        d = self.client.register_agent_service('http://foo.example.com:8500',
-                                               registration)
+        d = self.client.register_agent_service('foo.example.com', registration)
 
         request = yield self.requests.get()
         self.assertEqual(request.method, 'PUT')
@@ -540,8 +539,7 @@ class ConsulClientTest(JsonClientTestBase):
                 'TTL': '15s'
             }
         }
-        d = self.client.register_agent_service('http://foo.example.com:8500',
-                                               registration)
+        d = self.client.register_agent_service('foo.example.com', registration)
 
         request = yield self.requests.get()
         # Fail the request
@@ -566,8 +564,7 @@ class ConsulClientTest(JsonClientTestBase):
         When a service is deregistered, a PUT request is made to the correct
         address.
         """
-        d = self.client.deregister_agent_service('http://foo.example.com:8500',
-                                                 'redis1')
+        d = self.client.deregister_agent_service('foo.example.com', 'redis1')
 
         request = yield self.requests.get()
         self.assertEqual(request.method, 'PUT')
@@ -729,7 +726,7 @@ class ConsulClientTest(JsonClientTestBase):
         When we get the list of services from an agent, a request is made to
         the correct address and a list of services is returned.
         """
-        d = self.client.get_agent_services('http://foo.example.com:8500')
+        d = self.client.get_agent_services('foo.example.com')
 
         request = yield self.requests.get()
         self.assertEqual(request.method, 'GET')

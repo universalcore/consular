@@ -22,7 +22,7 @@ class JsonClient(object):
         """
         Create a client with the specified default endpoint.
         """
-        self.endpoint = endpoint
+        self.endpoint = urisplit(endpoint)
         self.pool = client.HTTPConnectionPool(self.clock, persistent=False)
 
     def requester(self, *args, **kwargs):
@@ -61,7 +61,8 @@ class JsonClient(object):
             Any other parameters that will be passed to `treq.request`, for
             example headers or parameters.
         """
-        scheme, authority = urisplit(endpoint or self.endpoint)[:2]
+        scheme, authority = (urisplit(endpoint)[:2] if endpoint is not None
+                             else self.endpoint[:2])
         url = uricompose(scheme, authority, path, query)
 
         data = json.dumps(json_data) if json_data else None
@@ -205,13 +206,21 @@ class ConsulClient(JsonClient):
             on an agent that cannot be reached.
         """
         super(ConsulClient, self).__init__(endpoint)
-        self.endpoint = endpoint
         self.enable_fallback = enable_fallback
 
-    def register_agent_service(self, agent_endpoint, registration):
+    def _get_agent_endpoint(self, agent_address):
         """
-        Register a Consul service at the given agent endpoint.
+        Use the default endpoint to construct the agent endpoint from an
+        address, i.e. use the same scheme and port but swap in the address.
         """
+        return uricompose(scheme=self.endpoint.scheme, host=agent_address,
+                          port=self.endpoint.port)
+
+    def register_agent_service(self, agent_address, registration):
+        """
+        Register a Consul service at the given agent address.
+        """
+        agent_endpoint = self._get_agent_endpoint(agent_address)
         d = self.request('PUT', '/v1/agent/service/register',
                          endpoint=agent_endpoint, json_data=registration)
 
@@ -231,10 +240,11 @@ class ConsulClient(JsonClient):
             'PUT', '/v1/agent/service/register', json_data=registration,
             timeout=self.fallback_timeout)
 
-    def deregister_agent_service(self, agent_endpoint, service_id):
+    def deregister_agent_service(self, agent_address, service_id):
         """
-        Deregister a Consul service at the given agent endpoint.
+        Deregister a Consul service at the given agent address.
         """
+        agent_endpoint = self._get_agent_endpoint(agent_address)
         return self.request('PUT', '/v1/agent/service/deregister/%s' % (
             service_id,), endpoint=agent_endpoint)
 
@@ -279,8 +289,9 @@ class ConsulClient(JsonClient):
         """
         return self.get_json('/v1/catalog/nodes')
 
-    def get_agent_services(self, agent_endpoint):
+    def get_agent_services(self, agent_address):
         """
-        Get the list of running services for the given agent endpoint.
+        Get the list of running services for the given agent address.
         """
+        agent_endpoint = self._get_agent_endpoint(agent_address)
         return self.get_json('/v1/agent/services', endpoint=agent_endpoint)
