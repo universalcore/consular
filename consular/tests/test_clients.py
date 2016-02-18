@@ -503,6 +503,46 @@ class ConsulClientTest(JsonClientTestBase):
         yield d
 
     @inlineCallbacks
+    def test_register_agent_service_fallback(self):
+        self.client.enable_fallback = True
+        # First try and do a regular registration
+        registration = {
+            'ID': 'redis1',
+            'Name': 'redis',
+            'Tags': [
+                'master',
+                'v1'
+            ],
+            'Address': '127.0.0.1',
+            'Port': 8000,
+            'Check': {
+                'Script': '/usr/local/bin/check_redis.py',
+                'HTTP': 'http://localhost:5000/health',
+                'Interval': '10s',
+                'TTL': '15s'
+            }
+        }
+        d = self.client.register_agent_service('http://foo.example.com:8500',
+                                               registration)
+
+        request = yield self.requests.get()
+        # Fail the request
+        request.setResponseCode(503)
+        request.write("Service unavailable\n")
+        request.finish()
+
+        # Expect the request to fallback to the regular endpoint
+        request = yield self.requests.get()
+        self.assertEqual(request.method, 'PUT')
+        self.assertEqual(request.uri, self.uri('/v1/agent/service/register'))
+        self.assertEqual(json.load(request.content), registration)
+
+        request.setResponseCode(200)
+        request.finish()
+
+        yield d
+
+    @inlineCallbacks
     def test_deregister_agent_service(self):
         d = self.client.deregister_agent_service('http://foo.example.com:8500',
                                                  'redis1')

@@ -214,11 +214,11 @@ class ConsulClient(JsonClient):
                          endpoint=agent_endpoint, json_data=registration)
 
         if self.enable_fallback:
-            d.addErrback(self.register_agent_service_fallback, registration)
+            d.addErrback(self._register_agent_service_fallback, registration)
 
         return d
 
-    def register_agent_service_fallback(self, failure, registration):
+    def _register_agent_service_fallback(self, failure, registration):
         """
         Fallback to the default agent endpoint (`self.endpoint`) to register
         a Consul service.
