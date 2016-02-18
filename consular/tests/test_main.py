@@ -1,5 +1,4 @@
 import json
-from urllib import urlencode
 
 from twisted.trial.unittest import TestCase
 from twisted.web.server import Site
@@ -222,7 +221,7 @@ class ConsularTest(TestCase):
         consul_kv_request = yield self.requests.get()
         self.assertEqual(consul_kv_request['method'], 'GET')
         self.assertEqual(consul_kv_request['url'],
-                         'http://localhost:8500/v1/kv/consular/my-app?keys=')
+                         'http://localhost:8500/v1/kv/consular/my-app?keys')
         consul_kv_request['deferred'].callback(
             FakeResponse(200, [], json.dumps([])))
 
@@ -331,7 +330,7 @@ class ConsularTest(TestCase):
         consul_kv_request = yield self.requests.get()
         self.assertEqual(consul_kv_request['method'], 'GET')
         self.assertEqual(consul_kv_request['url'],
-                         'http://localhost:8500/v1/kv/consular/my-app?keys=')
+                         'http://localhost:8500/v1/kv/consular/my-app?keys')
         consul_kv_request['deferred'].callback(
             FakeResponse(200, [], json.dumps([])))
 
@@ -394,7 +393,7 @@ class ConsularTest(TestCase):
         consul_kv_request = yield self.requests.get()
         self.assertEqual(consul_kv_request['method'], 'GET')
         self.assertEqual(consul_kv_request['url'],
-                         'http://localhost:8500/v1/kv/consular/my-app?keys=')
+                         'http://localhost:8500/v1/kv/consular/my-app?keys')
         consul_kv_request['deferred'].callback(
             FakeResponse(200, [], json.dumps([])))
 
@@ -513,10 +512,8 @@ class ConsularTest(TestCase):
         create_callback_request = yield self.requests.get()
         self.assertEqual(
             create_callback_request['url'],
-            'http://localhost:8080/v2/eventSubscriptions?%s' % (urlencode({
-                'callbackUrl': ('http://localhost:7000/'
-                                'events?registration=the-uuid')
-            }),))
+            'http://localhost:8080/v2/eventSubscriptions?'
+            'callbackUrl=http://localhost:7000/events?registration=the-uuid')
 
         self.assertEqual(create_callback_request['method'], 'POST')
         create_callback_request['deferred'].callback(FakeResponse(200, []))
@@ -754,7 +751,7 @@ class ConsularTest(TestCase):
         consul_request = yield self.requests.get()
         self.assertEqual(consul_request['method'], 'GET')
         self.assertEqual(consul_request['url'],
-                         'http://localhost:8500/v1/kv/consular/my-app?keys=')
+                         'http://localhost:8500/v1/kv/consular/my-app?keys')
         consul_request['deferred'].callback(
             FakeResponse(200, [], json.dumps([])))
 
@@ -783,7 +780,7 @@ class ConsularTest(TestCase):
         get_request = yield self.requests.get()
         self.assertEqual(get_request['method'], 'GET')
         self.assertEqual(get_request['url'],
-                         'http://localhost:8500/v1/kv/consular/my-app?keys=')
+                         'http://localhost:8500/v1/kv/consular/my-app?keys')
         consul_labels = [
             'consular/my-app/foo',
             'consular/my-app/oldfoo',
@@ -831,7 +828,7 @@ class ConsularTest(TestCase):
         get_request = yield self.requests.get()
         self.assertEqual(get_request['method'], 'GET')
         self.assertEqual(get_request['url'],
-                         'http://localhost:8500/v1/kv/consular/my-app?keys=')
+                         'http://localhost:8500/v1/kv/consular/my-app?keys')
         get_request['deferred'].callback(FakeResponse(404, [], None))
 
         yield d
@@ -858,7 +855,7 @@ class ConsularTest(TestCase):
         get_request = yield self.requests.get()
         self.assertEqual(get_request['method'], 'GET')
         self.assertEqual(get_request['url'],
-                         'http://localhost:8500/v1/kv/consular/my-app?keys=')
+                         'http://localhost:8500/v1/kv/consular/my-app?keys')
         get_request['deferred'].callback(FakeResponse(403, [], None))
 
         # Error is raised into a DeferredList, must get actual error
@@ -866,7 +863,7 @@ class ConsularTest(TestCase):
         self.assertEqual(
             failure.getErrorMessage(),
             '403 Client Error for url: '
-            'http://localhost:8500/v1/kv/consular/my-app?keys=')
+            'http://localhost:8500/v1/kv/consular/my-app?keys')
 
     @inlineCallbacks
     def test_sync_app(self):
@@ -882,7 +879,7 @@ class ConsularTest(TestCase):
         self.assertEqual(consul_request['method'], 'GET')
         self.assertEqual(
             consul_request['url'],
-            'http://localhost:8500/v1/kv/consular/my-app?keys=')
+            'http://localhost:8500/v1/kv/consular/my-app?keys')
         consul_request['deferred'].callback(
             FakeResponse(200, [], json.dumps([])))
 
@@ -1253,7 +1250,7 @@ class ConsularTest(TestCase):
         self.assertEqual(consul_request['method'], 'GET')
         self.assertEqual(
             consul_request['url'],
-            'http://localhost:8500/v1/kv/consular/?keys=&separator=%2F')
+            'http://localhost:8500/v1/kv/consular/?keys&separator=/')
         # Return one existing app and one non-existing app
         consul_request['deferred'].callback(
             FakeResponse(200, [], json.dumps([
@@ -1286,7 +1283,7 @@ class ConsularTest(TestCase):
         self.assertEqual(consul_request['method'], 'GET')
         self.assertEqual(
             consul_request['url'],
-            'http://localhost:8500/v1/kv/consular/?keys=&separator=%2F')
+            'http://localhost:8500/v1/kv/consular/?keys&separator=/')
         # Return a 404 error
         consul_request['deferred'].callback(FakeResponse(404, [], None))
 
@@ -1306,7 +1303,7 @@ class ConsularTest(TestCase):
         self.assertEqual(consul_request['method'], 'GET')
         self.assertEqual(
             consul_request['url'],
-            'http://localhost:8500/v1/kv/consular/?keys=&separator=%2F')
+            'http://localhost:8500/v1/kv/consular/?keys&separator=/')
         # Return a 403 error
         consul_request['deferred'].callback(FakeResponse(403, [], None))
 
@@ -1314,7 +1311,7 @@ class ConsularTest(TestCase):
         self.assertEqual(
             failure.getErrorMessage(),
             '403 Client Error for url: '
-            'http://localhost:8500/v1/kv/consular/?keys=&separator=%2F')
+            'http://localhost:8500/v1/kv/consular/?keys&separator=/')
 
     @inlineCallbacks
     def test_fallback_to_main_consul(self):

@@ -1,4 +1,3 @@
-from urllib import quote, urlencode
 import json
 import treq
 
@@ -6,6 +5,8 @@ from twisted.internet import reactor
 from twisted.python import log
 from twisted.web import client
 from twisted.web.http import OK
+
+from uritools import uricompose, urisplit
 
 # Twisted's default HTTP11 client factory is way too verbose
 client._HTTP11ClientFactory.noisy = False
@@ -36,7 +37,8 @@ class JsonClient(object):
         log.err(failure, 'Error performing request to %s' % (url,))
         return failure
 
-    def request(self, method, path, endpoint=None, json_data=None, **kwargs):
+    def request(self, method, path, query=None, endpoint=None, json_data=None,
+                **kwargs):
         """
         Perform a request. A number of basic defaults are set on the request
         that make using a JSON API easier. These defaults can be overridden by
@@ -45,8 +47,9 @@ class JsonClient(object):
         :param: method:
             The HTTP method to use (example is `GET`).
         :param: path:
-            The URL path. This is appended to the endpoint and should start
-            with a '/' (example is `/v2/apps`).
+            The URL path (example is `/v2/apps`).
+        :param: query:
+            The URL query parameters as a dict.
         :param: endpoint:
             The URL endpoint to use. The default value is the endpoint this
             client was created with (`self.endpoint`) (example is
@@ -58,7 +61,8 @@ class JsonClient(object):
             Any other parameters that will be passed to `treq.request`, for
             example headers or parameters.
         """
-        url = ('%s%s' % (endpoint or self.endpoint, path)).encode('utf-8')
+        scheme, authority = urisplit(endpoint or self.endpoint)[:2]
+        url = uricompose(scheme, authority, path, query)
 
         data = json.dumps(json_data) if json_data else None
         requester_kwargs = {
@@ -81,11 +85,11 @@ class JsonClient(object):
         d.addErrback(self._log_http_error, url)
         return d.addCallback(self._raise_for_status, url)
 
-    def get_json(self, path, **kwargs):
+    def get_json(self, path, query=None, **kwargs):
         """
         Perform a GET request to the given path and return the JSON response.
         """
-        d = self.request('GET', path, **kwargs)
+        d = self.request('GET', path, query, **kwargs)
         return d.addCallback(lambda response: response.json())
 
     def _raise_for_status(self, response, url):
@@ -161,9 +165,7 @@ class MarathonClient(JsonClient):
         Post a new Marathon event subscription with the given callback URL.
         """
         d = self.request(
-            'POST', '/v2/eventSubscriptions?%s' % urlencode({
-                'callbackUrl': callback_url,
-            }))
+            'POST', '/v2/eventSubscriptions', {'callbackUrl': callback_url})
         return d.addCallback(lambda response: response.code == OK)
 
     def get_apps(self):
@@ -241,7 +243,7 @@ class ConsulClient(JsonClient):
         Put a key/value in Consul's k/v store.
         """
         return self.request(
-            'PUT', '/v1/kv/%s' % (quote(key),), json_data=value)
+            'PUT', '/v1/kv/%s' % (key,), json_data=value)
 
     def get_kv_keys(self, keys_path, separator=None):
         """
@@ -254,11 +256,10 @@ class ConsulClient(JsonClient):
             getting all the keys non-recursively for a path. For more
             information see the Consul API documentation.
         """
-        params = {'keys': ''}
+        query = {'keys': None}
         if separator:
-            params['separator'] = separator
-        return self.get_json(
-            '/v1/kv/%s?%s' % (quote(keys_path), urlencode(params),))
+            query['separator'] = separator
+        return self.get_json('/v1/kv/%s' % (keys_path,), query)
 
     def delete_kv_keys(self, key, recurse=False):
         """
@@ -269,8 +270,8 @@ class ConsulClient(JsonClient):
         :param: recurse:
             Whether or not to recursively delete all subpaths of the key.
         """
-        query = '?recurse' if recurse else ''
-        return self.request('DELETE', '/v1/kv/%s%s' % (quote(key), query,))
+        query = {'recurse': None} if recurse else None
+        return self.request('DELETE', '/v1/kv/%s' % (key,), query)
 
     def get_catalog_nodes(self):
         """
