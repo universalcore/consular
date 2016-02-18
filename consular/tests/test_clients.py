@@ -471,6 +471,10 @@ class ConsulClientTest(JsonClientTestBase):
 
     @inlineCallbacks
     def test_register_agent_service(self):
+        """
+        When a service is registered with an agent, the registration JSON is
+        PUT to the correct address.
+        """
         registration = {
             'ID': 'redis1',
             'Name': 'redis',
@@ -504,6 +508,10 @@ class ConsulClientTest(JsonClientTestBase):
 
     @inlineCallbacks
     def test_register_agent_service_fallback(self):
+        """
+        When a service is registered with an agent but the registration request
+        fails, the registration should fall back to the local Consul agent.
+        """
         self.client.enable_fallback = True
         # First try and do a regular registration
         registration = {
@@ -544,6 +552,10 @@ class ConsulClientTest(JsonClientTestBase):
 
     @inlineCallbacks
     def test_deregister_agent_service(self):
+        """
+        When a service is deregistered, a PUT request is made to the correct
+        address.
+        """
         d = self.client.deregister_agent_service('http://foo.example.com:8500',
                                                  'redis1')
 
@@ -560,6 +572,10 @@ class ConsulClientTest(JsonClientTestBase):
 
     @inlineCallbacks
     def test_put_kv(self):
+        """
+        When a value is put in the key/value store, a PUT request is made to
+        the correct address with the JSON data in the payload.
+        """
         d = self.client.put_kv('foo', {'bar': 'baz'})
 
         request = yield self.requests.get()
@@ -579,6 +595,10 @@ class ConsulClientTest(JsonClientTestBase):
 
     @inlineCallbacks
     def test_get_kv_keys(self):
+        """
+        When we get keys from the key/value store, a request is made to the
+        correct address and a list of keys is returned.
+        """
         d = self.client.get_kv_keys('foo')
 
         request = yield self.requests.get()
@@ -601,6 +621,11 @@ class ConsulClientTest(JsonClientTestBase):
 
     @inlineCallbacks
     def test_get_kv_keys_separator(self):
+        """
+        When we get keys from the key/value store and the "separator" parameter
+        is specified, a request is made to the correct address, the separator
+        is passed as a query parameter, and a list of keys is returned.
+        """
         d = self.client.get_kv_keys('foo', separator='/')
 
         request = yield self.requests.get()
@@ -624,6 +649,10 @@ class ConsulClientTest(JsonClientTestBase):
 
     @inlineCallbacks
     def test_delete_kv_keys(self):
+        """
+        When we delete keys from the key/value store, a request is made to the
+        correct address.
+        """
         d = self.client.delete_kv_keys('foo')
 
         request = yield self.requests.get()
@@ -637,6 +666,10 @@ class ConsulClientTest(JsonClientTestBase):
 
     @inlineCallbacks
     def test_delete_kv_keys_recursive(self):
+        """
+        When we delete keys from the key/value store recursively, a request is
+        made to the correct address with the "recurse" query parameter set.
+        """
         d = self.client.delete_kv_keys('foo', recurse=True)
 
         request = yield self.requests.get()
@@ -654,6 +687,10 @@ class ConsulClientTest(JsonClientTestBase):
 
     @inlineCallbacks
     def test_get_catalog_nodes(self):
+        """
+        When we get the list of nodes from the catalog, a request is made to
+        the correct address and a list of nodes is returned.
+        """
         d = self.client.get_catalog_nodes()
 
         request = yield self.requests.get()
@@ -679,6 +716,10 @@ class ConsulClientTest(JsonClientTestBase):
 
     @inlineCallbacks
     def test_get_agent_services(self):
+        """
+        When we get the list of services from an agent, a request is made to
+        the correct address and a list of services is returned.
+        """
         d = self.client.get_agent_services('http://foo.example.com:8500')
 
         request = yield self.requests.get()
