@@ -6,9 +6,6 @@ here = os.path.abspath(os.path.dirname(__file__))
 with open(os.path.join(here, 'README.rst')) as f:
     README = f.read()
 
-with open(os.path.join(here, 'requirements.txt')) as f:
-    requires = filter(None, f.readlines())
-
 with open(os.path.join(here, 'VERSION')) as f:
     version = f.read().strip()
 
@@ -29,8 +26,13 @@ setup(name='consular',
       packages=find_packages(exclude=['docs']),
       include_package_data=True,
       zip_safe=False,
-      install_requires=requires,
-      tests_require=requires,
+      install_requires=[
+          'click',
+          'Klein',
+          'treq',
+          'Twisted',
+          'uritools>=1.0.0',
+      ],
       entry_points={
           'console_scripts': ['consular = consular.cli:main'],
       })

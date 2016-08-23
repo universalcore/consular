@@ -1,5 +1,6 @@
-pytest
+pytest>=3.0.0
 pytest-coverage
 pytest-xdist
 flake8
 sphinx
+txfake>=0.1.1

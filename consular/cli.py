@@ -1,7 +1,7 @@
 import click
 import sys
 
-from urllib import urlencode
+from uritools import uricompose
 
 
 @click.command()
@@ -16,9 +16,10 @@ from urllib import urlencode
 @click.option('--marathon', default='http://localhost:8080',
               help='The Marathon HTTP API')
 @click.option('--registration-id',
-              help=('Auto register for Marathon event callbacks with the '
-                    'registration-id. Must be unique for each consular '
-                    'process.'), type=str)
+              help=('Name used to register for event callbacks in Marathon as '
+                    'well as to register services in Consul. Must be unique '
+                    'for each consular process.'),
+              type=str, default='consular')
 @click.option('--sync-interval',
               help=('Automatically sync the apps in Marathon with what\'s '
                     'in Consul every _n_ seconds. Defaults to 0 (disabled).'),
@@ -53,27 +54,22 @@ def main(scheme, host, port,
          sync_interval, purge, logfile, debug, timeout,
          fallback, fallback_timeout):  # pragma: no cover
     from consular.main import Consular
-    from twisted.internet.task import LoopingCall
     from twisted.internet import reactor
     from twisted.python import log
 
     log.startLogging(logfile)
 
-    consular = Consular(consul, marathon, fallback)
-    consular.debug = debug
-    consular.timeout = timeout
+    consular = Consular(consul, marathon, fallback, registration_id)
+    consular.set_debug(debug)
+    consular.set_timeout(timeout)
     consular.fallback_timeout = fallback_timeout
-    if registration_id:
-        events_url = "%s://%s:%s/events?%s" % (
-            scheme, host, port,
-            urlencode({
-                'registration': registration_id,
-            }))
-        consular.register_marathon_event_callback(events_url)
+    events_url = uricompose(
+        scheme=scheme, host=host, port=port, path='/events',
+        query={'registration': registration_id})
+    consular.register_marathon_event_callback(events_url)
 
     if sync_interval > 0:
-        lc = LoopingCall(consular.sync_apps, purge)
-        lc.start(sync_interval, now=True)
+        consular.schedule_sync(sync_interval, purge)
 
     consular.run(host, port)
     reactor.run()
