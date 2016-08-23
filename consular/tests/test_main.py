@@ -654,7 +654,8 @@ class ConsularTest(TestCase):
     @inlineCallbacks
     def test_sync_app_tasks_task_lost(self):
         """
-        When syncing an app with a task, Consul is updated with a service entry
+        When syncing an app with a task that has the TASK_LOST state,
+        Consul should not be updated with a service entry
         for the task.
         """
         d = self.consular.sync_app_tasks({'id': '/my-app'})
@@ -1112,6 +1113,10 @@ class ConsularTest(TestCase):
 
     @inlineCallbacks
     def test_purge_task_lost_services(self):
+        """
+        When a task has anything but the TASK_RUNNING state it should
+        be deregistered from Consul
+        """
         d = self.consular.purge_dead_services()
         consul_request = yield self.requests.get()
         consul_request['deferred'].callback(
