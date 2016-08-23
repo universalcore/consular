@@ -522,7 +522,15 @@ class Consular(object):
 
     @inlineCallbacks
     def sync_app_tasks(self, app):
-        tasks = yield self.marathon_client.get_app_tasks(app['id'])
+        tasks = yield handle_not_found_error(
+            self.marathon_client.get_app_tasks, app['id'])
+        if tasks is None:
+            # Certain versions of Marathon may return 404 when an app has no
+            # tasks. Other versions return an empty list.
+            # https://github.com/mesosphere/marathon/issues/3881
+            log.msg('No tasks found in Marathon for app ID "%s"' % app['id'])
+            return
+
         for task in tasks:
             if task['state'] == 'TASK_RUNNING':
                 yield self.register_task_service(

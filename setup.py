@@ -31,7 +31,6 @@ setup(name='consular',
         'Klein',
         'treq',
         'Twisted',
-        'uritools>=1.0.0'
       ],
       entry_points={
           'console_scripts': ['consular = consular.cli:main'],

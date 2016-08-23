@@ -802,6 +802,31 @@ class ConsularTest(TestCase):
         yield d
 
     @inlineCallbacks
+    def test_sync_app_tasks_not_found(self):
+        """
+        When syncing an app with a task, and Marathon has no tasks for the app,
+        Consular should handle a 404 response from Marathon gracefully.
+        """
+        d = self.consular.sync_app_tasks({'id': '/my-app'})
+
+        # First Consular fetches the tasks for the app
+        marathon_request = yield self.requests.get()
+        self.assertEqual(marathon_request['method'], 'GET')
+        self.assertEqual(
+            marathon_request['url'],
+            'http://localhost:8080/v2/apps/my-app/tasks')
+
+        # Respond with a 404
+        marathon_request['deferred'].callback(
+            FakeResponse(404, [], json.dumps(
+                {"message": "App '/my-app' does not exist"}))
+        )
+
+        # Nothing much should happen -- there are no tasks
+
+        yield d
+
+    @inlineCallbacks
     def test_sync_app_labels(self):
         app = {
             'id': '/my-app',
