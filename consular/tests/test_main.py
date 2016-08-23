@@ -645,6 +645,60 @@ class ConsularTest(TestCase):
         yield d
 
     @inlineCallbacks
+    def test_sync_app_tasks_task_lost(self):
+        """
+        When syncing an app with a task, Consul is updated with a service entry
+        for the task.
+        """
+        d = self.consular.sync_app_tasks({'id': '/my-app'})
+
+        # First Consular fetches the tasks for the app
+        marathon_request = yield self.requests.get()
+        self.assertEqual(marathon_request['method'], 'GET')
+        self.assertEqual(
+            marathon_request['url'],
+            'http://localhost:8080/v2/apps/my-app/tasks')
+
+        # Respond with one task
+        marathon_request['deferred'].callback(
+            FakeResponse(200, [], json.dumps({
+                'tasks': [
+                    {
+                        'id': 'my-task-1',
+                        'host': '0.0.0.0',
+                        'ports': [1234],
+                        'state': 'TASK_LOST',
+                    },
+                    {
+                        'id': 'my-task-2',
+                        'host': '0.0.0.0',
+                        'ports': [5678],
+                        'state': 'TASK_RUNNING',
+                    }
+                ]}))
+        )
+
+        # Consular should register the task in Consul
+        consul_request = yield self.requests.get()
+        self.assertEqual(
+            consul_request['url'],
+            'http://0.0.0.0:8500/v1/agent/service/register')
+        self.assertEqual(json.loads(consul_request['data']), {
+            'Name': 'my-app',
+            'ID': 'my-task-2',
+            'Address': '0.0.0.0',
+            'Port': 5678,
+            'Tags': [
+                'consular-reg-id=test',
+                'consular-app-id=/my-app',
+            ],
+        })
+        self.assertEqual(consul_request['method'], 'PUT')
+        consul_request['deferred'].callback(
+            FakeResponse(200, [], json.dumps({})))
+        yield d
+
+    @inlineCallbacks
     def test_sync_app_tasks_no_ports(self):
         """
         When syncing an app with a task with no ports, Consul is updated with a
