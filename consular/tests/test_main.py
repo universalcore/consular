@@ -1160,8 +1160,8 @@ class ConsularTest(TestCase):
             }))
         )
 
-        # Expecting a request for the tasks for a given app, returning
-        # 1 of which only has the TASK_RUNNING state.
+        # Expecting a request for the tasks for a given app,
+        # returning only 1 task with state `TASK_RUNNING`
         testingapp_request = yield self.requests.get()
         self.assertEqual(testingapp_request['url'],
                          'http://localhost:8080/v2/apps/testinggroup/someid1/'
@@ -1202,7 +1202,6 @@ class ConsularTest(TestCase):
         deregister_request['deferred'].callback(
             FakeResponse(200, [], json.dumps({})))
         yield d
-
 
     @inlineCallbacks
     def test_purge_old_services(self):
