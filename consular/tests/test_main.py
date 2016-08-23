@@ -79,8 +79,7 @@ class ConsularTest(TestCase):
         return treq.request(
             method, 'http://localhost:%s%s' % (
                 self.listener_port,
-                path
-                ),
+                path),
             data=(json.dumps(data) if data is not None else None),
             pool=self.pool)
 
@@ -576,9 +575,12 @@ class ConsularTest(TestCase):
         # Respond with one task
         marathon_request['deferred'].callback(
             FakeResponse(200, [], json.dumps({
-                'tasks': [
-                    {'id': 'my-task-id', 'host': '0.0.0.0', 'ports': [1234]}
-                ]}))
+                'tasks': [{
+                    'id': 'my-task-id',
+                    'host': '0.0.0.0',
+                    'ports': [1234],
+                    'state': 'TASK_RUNNING',
+                }]}))
         )
 
         # Consular should register the task in Consul
@@ -620,7 +622,12 @@ class ConsularTest(TestCase):
         marathon_request['deferred'].callback(
             FakeResponse(200, [], json.dumps({
                 'tasks': [
-                    {'id': 'my-task-id', 'host': '0.0.0.0', 'ports': [1234]}
+                    {
+                        'id': 'my-task-id',
+                        'host': '0.0.0.0',
+                        'ports': [1234],
+                        'state': 'TASK_RUNNING',
+                    }
                 ]}))
         )
 
@@ -717,7 +724,12 @@ class ConsularTest(TestCase):
         marathon_request['deferred'].callback(
             FakeResponse(200, [], json.dumps({
                 'tasks': [
-                    {'id': 'my-task-id', 'host': '0.0.0.0', 'ports': []}
+                    {
+                        'id': 'my-task-id',
+                        'host': '0.0.0.0',
+                        'ports': [],
+                        'state': 'TASK_RUNNING',
+                    }
                 ]}))
         )
 
@@ -762,7 +774,8 @@ class ConsularTest(TestCase):
                     {
                         'id': 'my-task-id',
                         'host': '0.0.0.0',
-                        'ports': [4567, 1234, 6789]
+                        'ports': [4567, 1234, 6789],
+                        'state': 'TASK_RUNNING',
                     }
                 ]}))
         )

@@ -524,8 +524,9 @@ class Consular(object):
     def sync_app_tasks(self, app):
         tasks = yield self.marathon_client.get_app_tasks(app['id'])
         for task in tasks:
-            yield self.register_task_service(
-                app['id'], task['id'], task['host'], task['ports'])
+            if task['state'] == 'TASK_RUNNING':
+                yield self.register_task_service(
+                    app['id'], task['id'], task['host'], task['ports'])
 
     @inlineCallbacks
     def purge_dead_app_labels(self, apps):
