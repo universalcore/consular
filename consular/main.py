@@ -532,8 +532,9 @@ class Consular(object):
             return
 
         for task in tasks:
-            yield self.register_task_service(
-                app['id'], task['id'], task['host'], task['ports'])
+            if task['state'] == 'TASK_RUNNING':
+                yield self.register_task_service(
+                    app['id'], task['id'], task['host'], task['ports'])
 
     @inlineCallbacks
     def purge_dead_app_labels(self, apps):
@@ -638,6 +639,8 @@ class Consular(object):
         if not marathon_tasks:
             return consul_service_ids
 
-        task_id_set = set([task['id'] for task in marathon_tasks])
+        task_id_set = set([task['id']
+                           for task in marathon_tasks
+                           if task['state'] == 'TASK_RUNNING'])
         return [service_id for service_id in consul_service_ids
                 if service_id not in task_id_set]

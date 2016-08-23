@@ -1,4 +1,4 @@
-pytest
+pytest>=3.0.0
 pytest-coverage
 pytest-xdist
 flake8
