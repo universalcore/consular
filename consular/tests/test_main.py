@@ -1090,6 +1090,7 @@ class ConsularTest(TestCase):
                     "id": "taskid2",
                     "host": "machine-2",
                     "ports": [8103],
+                    "state": "TASK_RUNNING",
                     "startedAt": "2015-07-14T14:54:31.934Z",
                     "stagedAt": "2015-07-14T14:54:31.544Z",
                     "version": "2015-07-14T13:07:32.095Z"
@@ -1108,6 +1109,95 @@ class ConsularTest(TestCase):
         deregister_request['deferred'].callback(
             FakeResponse(200, [], json.dumps({})))
         yield d
+
+    @inlineCallbacks
+    def test_purge_task_lost_services(self):
+        d = self.consular.purge_dead_services()
+        consul_request = yield self.requests.get()
+        consul_request['deferred'].callback(
+            FakeResponse(200, [], json.dumps([{
+                'Node': 'consul-node',
+                'Address': '1.2.3.4',
+            }]))
+        )
+
+        agent_request = yield self.requests.get()
+        # Expecting a request to list of all services in Consul,
+        # returning 2
+        self.assertEqual(
+            agent_request['url'],
+            'http://1.2.3.4:8500/v1/agent/services')
+        self.assertEqual(agent_request['method'], 'GET')
+        agent_request['deferred'].callback(
+            FakeResponse(200, [], json.dumps({
+                "testinggroup-someid1": {
+                    "ID": "taskid1",
+                    "Service": "testingapp",
+                    "Tags": None,
+                    "Address": "machine-1",
+                    "Port": 8102,
+                    "Tags": [
+                        "consular-reg-id=test",
+                        "consular-app-id=/testinggroup/someid1",
+                    ],
+                },
+                "testinggroup-someid1": {
+                    "ID": "taskid2",
+                    "Service": "testingapp",
+                    "Tags": None,
+                    "Address": "machine-2",
+                    "Port": 8103,
+                    "Tags": [
+                        "consular-reg-id=test",
+                        "consular-app-id=/testinggroup/someid1",
+                    ],
+                }
+            }))
+        )
+
+        # Expecting a request for the tasks for a given app, returning
+        # 1 of which only has the TASK_RUNNING state.
+        testingapp_request = yield self.requests.get()
+        self.assertEqual(testingapp_request['url'],
+                         'http://localhost:8080/v2/apps/testinggroup/someid1/'
+                         'tasks')
+        self.assertEqual(testingapp_request['method'], 'GET')
+        testingapp_request['deferred'].callback(
+            FakeResponse(200, [], json.dumps({
+                "tasks": [{
+                    "appId": "/testinggroup/someid1",
+                    "id": "taskid1",
+                    "host": "machine-1",
+                    "ports": [8103],
+                    "state": "TASK_RUNNING",
+                    "startedAt": "2015-07-14T14:54:31.934Z",
+                    "stagedAt": "2015-07-14T14:54:31.544Z",
+                    "version": "2015-07-14T13:07:32.095Z"
+                }, {
+                    "appId": "/testinggroup/someid1",
+                    "id": "taskid2",
+                    "host": "machine-2",
+                    "ports": [8103],
+                    "state": "TASK_LOST",
+                    "startedAt": "2015-07-14T14:54:31.934Z",
+                    "stagedAt": "2015-07-14T14:54:31.544Z",
+                    "version": "2015-07-14T13:07:32.095Z"
+                }]
+            }))
+        )
+
+        # Expecting a service registering in Consul as a result for one
+        # of these services
+        deregister_request = yield self.requests.get()
+        self.assertEqual(
+            deregister_request['url'],
+            ('http://1.2.3.4:8500/v1/agent/service/deregister/'
+             'testinggroup-someid1'))
+        self.assertEqual(deregister_request['method'], 'PUT')
+        deregister_request['deferred'].callback(
+            FakeResponse(200, [], json.dumps({})))
+        yield d
+
 
     @inlineCallbacks
     def test_purge_old_services(self):

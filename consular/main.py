@@ -631,6 +631,8 @@ class Consular(object):
         if not marathon_tasks:
             return consul_service_ids
 
-        task_id_set = set([task['id'] for task in marathon_tasks])
+        task_id_set = set([task['id']
+                           for task in marathon_tasks
+                           if task['state'] == 'TASK_RUNNING'])
         return [service_id for service_id in consul_service_ids
                 if service_id not in task_id_set]
