@@ -20,6 +20,10 @@ about services & tasks.
     :target: https://pypi.python.org/pypi/consular
     :alt: Pypi Package
 
+Deprecated
+~~~~~~~~~~
+This project is no longer maintained. Instead, we recommend you use marathon-lb_ for load-balancing or marathon-consul_ for syncing state between Marathon and Consul.
+
 Usage
 ~~~~~
 
@@ -31,3 +35,5 @@ Usage
 
 .. _Marathon: http://mesosphere.github.io/marathon/
 .. _Consul: http://consul.io/
+.. _marathon-lb: https://github.com/mesosphere/marathon-lb
+.. _matathon-consul: https://github.com/allegro/marathon-consul
