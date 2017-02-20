@@ -36,4 +36,4 @@ Usage
 .. _Marathon: http://mesosphere.github.io/marathon/
 .. _Consul: http://consul.io/
 .. _marathon-lb: https://github.com/mesosphere/marathon-lb
-.. _matathon-consul: https://github.com/allegro/marathon-consul
+.. _marathon-consul: https://github.com/allegro/marathon-consul
